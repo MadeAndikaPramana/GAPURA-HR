@@ -87,20 +87,42 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Display the specified employee
+     * Display the specified employee with training records
      */
     public function show(Employee $employee)
     {
-        $employee->load(['department', 'trainingRecords.trainingType']);
+        // Load employee with department and training records
+        $employee->load([
+            'department',
+            'trainingRecords' => function($query) {
+                $query->with('trainingType')->orderBy('expiry_date', 'desc');
+            }
+        ]);
+
+        // Calculate training statistics
+        $trainingStats = [
+            'total' => $employee->trainingRecords->count(),
+            'active' => $employee->trainingRecords->where('status', 'active')->count(),
+            'expiring_soon' => $employee->trainingRecords->where('status', 'expiring_soon')->count(),
+            'expired' => $employee->trainingRecords->where('status', 'expired')->count(),
+        ];
+
+        // Calculate compliance rate
+        $trainingStats['compliance_rate'] = $trainingStats['total'] > 0
+            ? round(($trainingStats['active'] / $trainingStats['total']) * 100, 2)
+            : 0;
+
+        // Get recent activities (last 5 training records)
+        $recentActivities = $employee->trainingRecords()
+            ->with('trainingType')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get();
 
         return Inertia::render('Employees/Show', [
             'employee' => $employee,
-            'trainingStats' => [
-                'total' => $employee->trainingRecords->count(),
-                'active' => $employee->trainingRecords->where('status', 'active')->count(),
-                'expiring_soon' => $employee->trainingRecords->where('status', 'expiring_soon')->count(),
-                'expired' => $employee->trainingRecords->where('status', 'expired')->count(),
-            ]
+            'trainingStats' => $trainingStats,
+            'recentActivities' => $recentActivities
         ]);
     }
 
@@ -178,52 +200,154 @@ class EmployeeController extends Controller
      */
     public function export(Request $request)
     {
-        $fileName = 'employees_' . date('Y-m-d_H-i-s') . '.xlsx';
+        $filters = $request->only(['search', 'department', 'status']);
 
-        return Excel::download(new EmployeesExport, $fileName);
+        return Excel::download(new EmployeesExport($filters), 'employees_export.xlsx');
     }
 
     /**
-     * Bulk operations for employees
+     * Handle bulk actions on employees
      */
     public function bulkAction(Request $request)
     {
         $request->validate([
-            'action' => 'required|in:activate,deactivate,delete',
+            'action' => 'required|in:activate,deactivate,delete,export',
             'employee_ids' => 'required|array',
             'employee_ids.*' => 'exists:employees,id'
         ]);
 
+        $employees = Employee::whereIn('id', $request->employee_ids);
+
         switch ($request->action) {
             case 'activate':
-                Employee::whereIn('id', $request->employee_ids)
-                    ->update(['status' => 'active']);
-                $message = 'Employees berhasil diaktifkan.';
+                $employees->update(['status' => 'active']);
+                $message = 'Selected employees have been activated.';
                 break;
 
             case 'deactivate':
-                Employee::whereIn('id', $request->employee_ids)
-                    ->update(['status' => 'inactive']);
-                $message = 'Employees berhasil dinonaktifkan.';
+                $employees->update(['status' => 'inactive']);
+                $message = 'Selected employees have been deactivated.';
                 break;
 
             case 'delete':
-                // Check for training records before deleting
-                $employeesWithTraining = Employee::whereIn('id', $request->employee_ids)
-                    ->whereHas('trainingRecords')
-                    ->count();
-
-                if ($employeesWithTraining > 0) {
-                    return redirect()->route('employees.index')
-                        ->with('error', 'Tidak dapat menghapus employees yang memiliki training records.');
+                // Check if any employee has training records
+                $employeesWithRecords = $employees->has('trainingRecords')->count();
+                if ($employeesWithRecords > 0) {
+                    return redirect()->back()
+                        ->with('error', 'Cannot delete employees who have training records.');
                 }
 
-                Employee::whereIn('id', $request->employee_ids)->delete();
-                $message = 'Employees berhasil dihapus.';
+                $employees->delete();
+                $message = 'Selected employees have been deleted.';
                 break;
+
+            case 'export':
+                return Excel::download(
+                    new EmployeesExport(['employee_ids' => $request->employee_ids]),
+                    'selected_employees.xlsx'
+                );
         }
 
         return redirect()->route('employees.index')
             ->with('success', $message);
+    }
+
+    /**
+     * Get employee statistics for dashboard
+     */
+    public function getStatistics()
+    {
+        $stats = [
+            'total_employees' => Employee::count(),
+            'active_employees' => Employee::where('status', 'active')->count(),
+            'inactive_employees' => Employee::where('status', 'inactive')->count(),
+            'by_department' => Employee::with('department')
+                ->selectRaw('department_id, departments.name as department_name, count(*) as count')
+                ->join('departments', 'employees.department_id', '=', 'departments.id')
+                ->groupBy('department_id', 'departments.name')
+                ->get(),
+            'recent_additions' => Employee::with('department')
+                ->orderBy('created_at', 'desc')
+                ->limit(5)
+                ->get(),
+            'employees_with_trainings' => Employee::has('trainingRecords')->count(),
+            'employees_without_trainings' => Employee::doesntHave('trainingRecords')->count()
+        ];
+
+        return response()->json($stats);
+    }
+
+    /**
+     * Search employees for autocomplete/select
+     */
+    public function search(Request $request)
+    {
+        $query = $request->get('q');
+
+        $employees = Employee::where(function($q) use ($query) {
+                $q->where('name', 'like', "%{$query}%")
+                  ->orWhere('employee_id', 'like', "%{$query}%");
+            })
+            ->with('department')
+            ->limit(10)
+            ->get()
+            ->map(function($employee) {
+                return [
+                    'id' => $employee->id,
+                    'employee_id' => $employee->employee_id,
+                    'name' => $employee->name,
+                    'department' => $employee->department?->name,
+                    'position' => $employee->position,
+                    'status' => $employee->status
+                ];
+            });
+
+        return response()->json($employees);
+    }
+
+    /**
+     * Get employee training compliance summary
+     */
+    public function getComplianceSummary(Employee $employee)
+    {
+        $trainingRecords = $employee->trainingRecords()->with('trainingType')->get();
+
+        $summary = [
+            'employee' => $employee,
+            'total_trainings' => $trainingRecords->count(),
+            'active_trainings' => $trainingRecords->where('status', 'active')->count(),
+            'expiring_trainings' => $trainingRecords->where('status', 'expiring_soon')->count(),
+            'expired_trainings' => $trainingRecords->where('status', 'expired')->count(),
+            'by_category' => $trainingRecords->groupBy('trainingType.category')->map(function($records, $category) {
+                return [
+                    'category' => $category,
+                    'total' => $records->count(),
+                    'active' => $records->where('status', 'active')->count(),
+                    'expiring' => $records->where('status', 'expiring_soon')->count(),
+                    'expired' => $records->where('status', 'expired')->count(),
+                ];
+            })
+        ];
+
+        return response()->json($summary);
+    }
+
+    /**
+     * Get employees requiring training renewal
+     */
+    public function getEmployeesRequiringRenewal($days = 30)
+    {
+        $employees = Employee::with(['trainingRecords' => function($query) use ($days) {
+            $query->where('expiry_date', '<=', now()->addDays($days))
+                  ->where('expiry_date', '>=', now())
+                  ->with('trainingType');
+        }])
+        ->has('trainingRecords')
+        ->get()
+        ->filter(function($employee) {
+            return $employee->trainingRecords->count() > 0;
+        });
+
+        return response()->json($employees);
     }
 }

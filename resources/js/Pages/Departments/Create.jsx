@@ -3,22 +3,20 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, useForm } from '@inertiajs/react';
 import {
     ArrowLeftIcon,
-    InformationCircleIcon
+    InformationCircleIcon,
+    BuildingOfficeIcon
 } from '@heroicons/react/24/outline';
 
-export default function Create({ auth, categories }) {
+export default function Create({ auth }) {
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
         code: '',
-        validity_months: '12',
-        category: '',
-        description: '',
-        is_active: true
+        description: ''
     });
 
     const submit = (e) => {
         e.preventDefault();
-        post(route('training-types.store'), {
+        post(route('departments.store'), {
             onSuccess: () => reset(),
         });
     };
@@ -29,24 +27,24 @@ export default function Create({ auth, categories }) {
             header={
                 <div className="flex items-center space-x-4">
                     <Link
-                        href={route('training-types.index')}
+                        href={route('departments.index')}
                         className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                     >
                         <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                        Back to Training Types
+                        Back to Departments
                     </Link>
                     <div>
                         <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                            Create New Training Type
+                            Create New Department
                         </h2>
                         <p className="text-sm text-gray-600 mt-1">
-                            Tambah jenis pelatihan baru ke sistem training GAPURA
+                            Tambah departemen atau unit organisasi baru
                         </p>
                     </div>
                 </div>
             }
         >
-            <Head title="Create Training Type" />
+            <Head title="Create Department" />
 
             <div className="py-12">
                 <div className="max-w-3xl mx-auto sm:px-6 lg:px-8">
@@ -58,14 +56,14 @@ export default function Create({ auth, categories }) {
                                     <InformationCircleIcon className="w-5 h-5 text-blue-400 mt-0.5" />
                                     <div className="ml-3">
                                         <h3 className="text-sm font-medium text-blue-800">
-                                            Training Type Guidelines
+                                            Department Guidelines
                                         </h3>
                                         <div className="mt-2 text-sm text-blue-700">
                                             <ul className="list-disc pl-5 space-y-1">
-                                                <li>Name should be descriptive and unique</li>
-                                                <li>Code will be auto-generated if not provided</li>
-                                                <li>Validity period determines when certificates expire</li>
-                                                <li>Categories help organize training types</li>
+                                                <li>Department name should be descriptive and unique</li>
+                                                <li>Code should be short (3-10 characters) and easy to remember</li>
+                                                <li>Code will be automatically converted to uppercase</li>
+                                                <li>Description helps identify the department's purpose</li>
                                             </ul>
                                         </div>
                                     </div>
@@ -74,10 +72,10 @@ export default function Create({ auth, categories }) {
 
                             <form onSubmit={submit} className="space-y-6">
                                 <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                                    {/* Training Name */}
+                                    {/* Department Name */}
                                     <div className="sm:col-span-2">
                                         <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-                                            Training Name *
+                                            Department Name *
                                         </label>
                                         <div className="mt-1">
                                             <input
@@ -88,7 +86,7 @@ export default function Create({ auth, categories }) {
                                                 className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
                                                     errors.name ? 'border-red-300' : ''
                                                 }`}
-                                                placeholder="e.g., Fire Safety Training"
+                                                placeholder="e.g., Human Resources"
                                                 required
                                             />
                                         </div>
@@ -97,10 +95,10 @@ export default function Create({ auth, categories }) {
                                         )}
                                     </div>
 
-                                    {/* Training Code */}
+                                    {/* Department Code */}
                                     <div>
                                         <label htmlFor="code" className="block text-sm font-medium text-gray-700">
-                                            Training Code
+                                            Department Code *
                                         </label>
                                         <div className="mt-1">
                                             <input
@@ -111,90 +109,17 @@ export default function Create({ auth, categories }) {
                                                 className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
                                                     errors.code ? 'border-red-300' : ''
                                                 }`}
-                                                placeholder="FIRE"
-                                                maxLength="50"
+                                                placeholder="HR"
+                                                maxLength="10"
+                                                required
                                             />
                                         </div>
                                         <p className="mt-1 text-xs text-gray-500">
-                                            Leave empty to auto-generate from name
+                                            Short code for easy identification (3-10 characters)
                                         </p>
                                         {errors.code && (
                                             <p className="mt-2 text-sm text-red-600">{errors.code}</p>
                                         )}
-                                    </div>
-
-                                    {/* Validity Months */}
-                                    <div>
-                                        <label htmlFor="validity_months" className="block text-sm font-medium text-gray-700">
-                                            Validity Period (Months) *
-                                        </label>
-                                        <div className="mt-1">
-                                            <select
-                                                id="validity_months"
-                                                value={data.validity_months}
-                                                onChange={(e) => setData('validity_months', e.target.value)}
-                                                className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                    errors.validity_months ? 'border-red-300' : ''
-                                                }`}
-                                                required
-                                            >
-                                                <option value="6">6 Months</option>
-                                                <option value="12">12 Months (1 Year)</option>
-                                                <option value="18">18 Months</option>
-                                                <option value="24">24 Months (2 Years)</option>
-                                                <option value="36">36 Months (3 Years)</option>
-                                                <option value="60">60 Months (5 Years)</option>
-                                            </select>
-                                        </div>
-                                        {errors.validity_months && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.validity_months}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Category */}
-                                    <div>
-                                        <label htmlFor="category" className="block text-sm font-medium text-gray-700">
-                                            Category *
-                                        </label>
-                                        <div className="mt-1">
-                                            <select
-                                                id="category"
-                                                value={data.category}
-                                                onChange={(e) => setData('category', e.target.value)}
-                                                className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                    errors.category ? 'border-red-300' : ''
-                                                }`}
-                                                required
-                                            >
-                                                <option value="">Select Category</option>
-                                                {categories.map(category => (
-                                                    <option key={category} value={category}>
-                                                        {category.charAt(0).toUpperCase() + category.slice(1)}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        {errors.category && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.category}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Status */}
-                                    <div>
-                                        <label htmlFor="is_active" className="block text-sm font-medium text-gray-700">
-                                            Status
-                                        </label>
-                                        <div className="mt-1">
-                                            <select
-                                                id="is_active"
-                                                value={data.is_active ? 'true' : 'false'}
-                                                onChange={(e) => setData('is_active', e.target.value === 'true')}
-                                                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                            >
-                                                <option value="true">Active</option>
-                                                <option value="false">Inactive</option>
-                                            </select>
-                                        </div>
                                     </div>
                                 </div>
 
@@ -212,7 +137,7 @@ export default function Create({ auth, categories }) {
                                             className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
                                                 errors.description ? 'border-red-300' : ''
                                             }`}
-                                            placeholder="Optional description of the training type, its purpose, requirements, etc."
+                                            placeholder="Optional description of the department's role and responsibilities..."
                                         />
                                     </div>
                                     {errors.description && (
@@ -220,25 +145,73 @@ export default function Create({ auth, categories }) {
                                     )}
                                 </div>
 
-                                {/* Category Description Helper */}
-                                {data.category && (
+                                {/* Preview */}
+                                {(data.name || data.code) && (
                                     <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-                                        <h4 className="text-sm font-medium text-gray-900 mb-2">
-                                            {data.category.charAt(0).toUpperCase() + data.category.slice(1)} Category
+                                        <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+                                            <BuildingOfficeIcon className="w-4 h-4 mr-2" />
+                                            Department Preview
                                         </h4>
-                                        <p className="text-sm text-gray-600">
-                                            {data.category === 'safety' && 'Safety-related trainings including fire safety, first aid, occupational health and safety.'}
-                                            {data.category === 'operational' && 'Operational trainings for day-to-day work processes, ground handling, customer service.'}
-                                            {data.category === 'security' && 'Security and access control trainings, airport security awareness, background checks.'}
-                                            {data.category === 'technical' && 'Technical skills training for equipment operation, maintenance, specialized procedures.'}
-                                        </p>
+                                        <div className="space-y-2 text-sm">
+                                            {data.name && (
+                                                <div>
+                                                    <span className="font-medium text-gray-700">Name:</span>
+                                                    <span className="ml-2 text-gray-900">{data.name}</span>
+                                                </div>
+                                            )}
+                                            {data.code && (
+                                                <div>
+                                                    <span className="font-medium text-gray-700">Code:</span>
+                                                    <span className="ml-2 text-gray-900 font-mono">{data.code}</span>
+                                                </div>
+                                            )}
+                                            {data.description && (
+                                                <div>
+                                                    <span className="font-medium text-gray-700">Description:</span>
+                                                    <span className="ml-2 text-gray-900">{data.description}</span>
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
+
+                                {/* Example Departments */}
+                                <div className="bg-green-50 border border-green-200 rounded-md p-4">
+                                    <h4 className="text-sm font-medium text-green-900 mb-2">
+                                        Example Departments
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-4 text-sm text-green-800">
+                                        <div>
+                                            <div className="font-medium">Human Resources</div>
+                                            <div className="text-xs text-green-600">Code: HR</div>
+                                        </div>
+                                        <div>
+                                            <div className="font-medium">Information Technology</div>
+                                            <div className="text-xs text-green-600">Code: IT</div>
+                                        </div>
+                                        <div>
+                                            <div className="font-medium">Flight Operations</div>
+                                            <div className="text-xs text-green-600">Code: OPS</div>
+                                        </div>
+                                        <div>
+                                            <div className="font-medium">Ground Support Equipment</div>
+                                            <div className="text-xs text-green-600">Code: GSE</div>
+                                        </div>
+                                        <div>
+                                            <div className="font-medium">Security Services</div>
+                                            <div className="text-xs text-green-600">Code: SEC</div>
+                                        </div>
+                                        <div>
+                                            <div className="font-medium">Customer Relations</div>
+                                            <div className="text-xs text-green-600">Code: CR</div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 {/* Form Actions */}
                                 <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
                                     <Link
-                                        href={route('training-types.index')}
+                                        href={route('departments.index')}
                                         className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                                     >
                                         Cancel
@@ -248,7 +221,7 @@ export default function Create({ auth, categories }) {
                                         disabled={processing}
                                         className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {processing ? 'Creating...' : 'Create Training Type'}
+                                        {processing ? 'Creating...' : 'Create Department'}
                                     </button>
                                 </div>
                             </form>

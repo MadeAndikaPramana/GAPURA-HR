@@ -9,6 +9,8 @@ use App\Http\Controllers\DashboardController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use Illuminate\Http\Request;
+use Maatwebsite\Excel\Facades\Excel;
 
 /*
 |--------------------------------------------------------------------------
@@ -59,6 +61,14 @@ Route::middleware(['auth', 'role:admin'])->group(function () {
     Route::get('employees/export', [EmployeeController::class, 'export'])->name('employees.export');
     Route::post('employees/bulk-action', [EmployeeController::class, 'bulkAction'])->name('employees.bulkAction');
 
+    // Employee API Routes
+    Route::prefix('api/employees')->group(function () {
+        Route::get('search', [EmployeeController::class, 'search'])->name('api.employees.search');
+        Route::get('statistics', [EmployeeController::class, 'getStatistics'])->name('api.employees.statistics');
+        Route::get('{employee}/compliance', [EmployeeController::class, 'getComplianceSummary'])->name('api.employees.compliance');
+        Route::get('requiring-renewal', [EmployeeController::class, 'getEmployeesRequiringRenewal'])->name('api.employees.requiring-renewal');
+    });
+
     // Training Records Management
     Route::resource('training-records', TrainingRecordController::class);
     Route::post('training-records/bulk-import', [TrainingRecordController::class, 'handleBulkImport'])->name('training-records.handleBulkImport');
@@ -104,6 +114,12 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
     // Training Types Management
     Route::resource('training-types', TrainingTypeController::class);
     Route::post('training-types/{trainingType}/toggle-status', [TrainingTypeController::class, 'toggleStatus'])->name('training-types.toggle-status');
+    Route::get('training-types/export', [TrainingTypeController::class, 'export'])->name('training-types.export');
+
+    // Training Types API Routes
+    Route::prefix('api/training-types')->group(function () {
+        Route::get('statistics', [TrainingTypeController::class, 'getStatistics'])->name('api.training-types.statistics');
+    });
 
     // Department Management
     Route::resource('departments', DepartmentController::class);
@@ -164,6 +180,18 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
                 public function headings(): array { return $this->headers; }
             }, $filename);
         })->name('templates.training-records');
+
+        Route::get('templates/training-types', function() {
+            $headers = ['name', 'code', 'validity_months', 'category', 'description', 'is_active'];
+            $filename = 'training_types_import_template.xlsx';
+
+            return Excel::download(new class($headers) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
+                private $headers;
+                public function __construct($headers) { $this->headers = $headers; }
+                public function array(): array { return []; }
+                public function headings(): array { return $this->headers; }
+            }, $filename);
+        })->name('templates.training-types');
     });
 });
 
@@ -175,45 +203,33 @@ Route::middleware(['auth', 'role:super_admin'])->group(function () {
 
 Route::middleware(['auth:sanctum'])->prefix('api/v1')->name('api.v1.')->group(function () {
 
-    // Compliance API
-    Route::get('compliance/overview', function() {
-        $service = app(\App\Services\TrainingStatusService::class);
-        return response()->json($service->getDashboardStats());
-    })->name('compliance.overview');
+    // Public API for external systems
+    Route::get('employees', [EmployeeController::class, 'index']);
+    Route::get('employees/{employee}', [EmployeeController::class, 'show']);
+    Route::get('training-records', [TrainingRecordController::class, 'index']);
+    Route::get('training-types', [TrainingTypeController::class, 'index']);
 
+    // Training compliance endpoints
     Route::get('compliance/department/{department}', function($department) {
         $service = app(\App\Services\TrainingStatusService::class);
-        $data = $service->getComplianceByDepartment();
-        $departmentData = $data->where('department_name', $department)->first();
+        return response()->json($service->getComplianceByDepartment());
+    });
 
-        return response()->json($departmentData ?: []);
-    })->name('compliance.department');
-
-    Route::get('expiring-certificates', function(Request $request) {
+    Route::get('compliance/training-type/{trainingType}', function($trainingType) {
         $service = app(\App\Services\TrainingStatusService::class);
-        $days = $request->get('days', 30);
-
-        return response()->json($service->getExpiringSoon($days));
-    })->name('expiring-certificates');
+        return response()->json($service->getComplianceByTrainingType());
+    });
 });
 
 /*
 |--------------------------------------------------------------------------
-| Include Authentication Routes
+| Fallback Routes
 |--------------------------------------------------------------------------
 */
+
+// 404 handler for SPA
+Route::fallback(function () {
+    return Inertia::render('Errors/404');
+});
 
 require __DIR__.'/auth.php';
-
-/*
-|--------------------------------------------------------------------------
-| Fallback Route
-|--------------------------------------------------------------------------
-*/
-
-Route::fallback(function () {
-    return Inertia::render('Error', [
-        'status' => 404,
-        'message' => 'Page not found'
-    ]);
-});
