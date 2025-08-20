@@ -1,0 +1,12 @@
+:root {
+  --primary-green: #22c55e;
+  --primary-green-dark: #16a34a;
+  --sidebar-bg: #1f2937;
+  --card-bg: #ffffff;
+  --text-primary: #1f2937;
+  --text-secondary: #6b7280;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --border: #e5e7eb;
+}
