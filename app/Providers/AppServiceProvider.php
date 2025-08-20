@@ -1,10 +1,13 @@
 <?php
 
+// ========================================================================
+// app/Providers/AppServiceProvider.php - Register TrainingStatusService
+// ========================================================================
+
 namespace App\Providers;
 
-use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Console\Scheduling\Schedule;
+use App\Services\TrainingStatusService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -13,7 +16,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Register TrainingStatusService as singleton
+        $this->app->singleton(TrainingStatusService::class, function ($app) {
+            return new TrainingStatusService();
+        });
     }
 
     /**
@@ -21,11 +27,6 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Vite::prefetch(concurrency: 3);
-
-        $this->app->booted(function () {
-            $schedule = $this->app->make(Schedule::class);
-            $schedule->command('app:check-certificate-expiry')->daily();
-        });
+        // Boot services if needed
     }
 }
