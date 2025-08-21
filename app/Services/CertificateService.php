@@ -2,450 +2,418 @@
 
 namespace App\Services;
 
+use App\Models\Certificate;
 use App\Models\TrainingRecord;
-use App\Models\TrainingType;
 use App\Models\Employee;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\CertificatesExport;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class CertificateService
 {
     /**
-     * Generate a unique certificate number
+     * Store certificate file with proper naming and organization
      */
-    public function generateCertificateNumber(TrainingType $trainingType, string $issuer, Employee $employee): string
+    public function storeCertificateFile(UploadedFile $file, string $certificateNumber): string
     {
-        $year = Carbon::now()->year;
-        $typeCode = $trainingType->code ?? strtoupper(substr($trainingType->name, 0, 4));
+        $year = date('Y');
+        $month = date('m');
 
-        // Generate base pattern: TYPE-YEAR-SEQUENCE
-        $basePattern = "{$typeCode}-{$year}";
+        // Create organized directory structure
+        $directory = "certificates/{$year}/{$month}";
 
-        // Get the next sequence number for this pattern
-        $lastRecord = TrainingRecord::where('certificate_number', 'like', "{$basePattern}-%")
-            ->orderBy('certificate_number', 'desc')
-            ->first();
+        // Generate secure filename
+        $extension = $file->getClientOriginalExtension();
+        $filename = Str::slug($certificateNumber) . '_' . time() . '.' . $extension;
 
-        $sequence = 1;
-        if ($lastRecord) {
-            $parts = explode('-', $lastRecord->certificate_number);
-            if (count($parts) >= 3) {
-                $lastSequence = intval(end($parts));
-                $sequence = $lastSequence + 1;
+        // Store file
+        $path = $file->storeAs($directory, $filename, 'private');
+
+        return $path;
+    }
+
+    /**
+     * Generate QR code for certificate verification
+     */
+    public function generateQrCode(Certificate $certificate): string
+    {
+        $qrData = [
+            'type' => 'certificate_verification',
+            'certificate_id' => $certificate->id,
+            'verification_code' => $certificate->verification_code,
+            'verification_url' => $certificate->verification_url,
+            'issued_date' => $certificate->issue_date->format('Y-m-d'),
+            'expiry_date' => $certificate->expiry_date?->format('Y-m-d'),
+            'employee_name' => $certificate->trainingRecord->employee->name,
+            'training_name' => $certificate->trainingRecord->trainingType->name
+        ];
+
+        // Generate QR code
+        $qrCode = QrCode::format('png')
+            ->size(300)
+            ->margin(1)
+            ->generate(json_encode($qrData));
+
+        // Store QR code file
+        $year = date('Y');
+        $month = date('m');
+        $directory = "qr_codes/{$year}/{$month}";
+        $filename = Str::slug($certificate->certificate_number) . '_qr.png';
+        $path = "{$directory}/{$filename}";
+
+        Storage::put($path, $qrCode);
+
+        // Update certificate with QR code path
+        $certificate->update(['qr_code_path' => $path]);
+
+        return $path;
+    }
+
+    /**
+     * Create certificate from training record
+     */
+    public function createCertificateFromTrainingRecord(TrainingRecord $trainingRecord, array $additionalData = []): Certificate
+    {
+        $trainingType = $trainingRecord->trainingType;
+
+        // Calculate expiry date based on training type validity
+        $expiryDate = null;
+        if ($trainingType->validity_months) {
+            $expiryDate = Carbon::parse($trainingRecord->completion_date ?? now())
+                ->addMonths($trainingType->validity_months);
+        }
+
+        $certificateData = array_merge([
+            'training_record_id' => $trainingRecord->id,
+            'certificate_number' => Certificate::generateCertificateNumber($trainingType->code),
+            'issued_by' => $trainingType->certification_authority ?? 'Gapura Training System',
+            'issue_date' => $trainingRecord->completion_date ?? now(),
+            'expiry_date' => $expiryDate,
+            'is_verified' => true,
+            'verification_date' => now(),
+            'verified_by_id' => auth()->id()
+        ], $additionalData);
+
+        $certificate = Certificate::create($certificateData);
+
+        // Generate QR code
+        $this->generateQrCode($certificate);
+
+        return $certificate;
+    }
+
+    /**
+     * Batch create certificates for multiple training records
+     */
+    public function batchCreateCertificates(array $trainingRecordIds, array $commonData = []): array
+    {
+        $results = [];
+
+        foreach ($trainingRecordIds as $recordId) {
+            try {
+                $trainingRecord = TrainingRecord::findOrFail($recordId);
+
+                // Skip if certificate already exists
+                if ($trainingRecord->certificates()->exists()) {
+                    $results[] = [
+                        'training_record_id' => $recordId,
+                        'status' => 'skipped',
+                        'message' => 'Certificate already exists'
+                    ];
+                    continue;
+                }
+
+                $certificate = $this->createCertificateFromTrainingRecord($trainingRecord, $commonData);
+
+                $results[] = [
+                    'training_record_id' => $recordId,
+                    'certificate_id' => $certificate->id,
+                    'status' => 'created',
+                    'message' => 'Certificate created successfully'
+                ];
+
+            } catch (\Exception $e) {
+                $results[] = [
+                    'training_record_id' => $recordId,
+                    'status' => 'error',
+                    'message' => $e->getMessage()
+                ];
             }
         }
 
-        return sprintf("%s-%03d", $basePattern, $sequence);
+        return $results;
     }
 
     /**
-     * Calculate expiry date based on training type validity
+     * Renew certificate
      */
-    public function calculateExpiryDate(string $issueDate, TrainingType $trainingType): string
+    public function renewCertificate(Certificate $certificate, array $renewalData = []): Certificate
     {
-        $issueCarbon = Carbon::parse($issueDate);
-        $expiryCarbon = $issueCarbon->clone()->addMonths($trainingType->validity_months);
+        $trainingType = $certificate->trainingRecord->trainingType;
 
-        return $expiryCarbon->toDateString();
-    }
-
-    /**
-     * Create a new certificate record
-     */
-    public function createCertificate(array $data): TrainingRecord
-    {
-        DB::beginTransaction();
-
-        try {
-            $employee = Employee::findOrFail($data['employee_id']);
-            $trainingType = TrainingType::findOrFail($data['training_type_id']);
-
-            // Auto-generate certificate number if not provided
-            if (empty($data['certificate_number'])) {
-                $data['certificate_number'] = $this->generateCertificateNumber(
-                    $trainingType,
-                    $data['issuer'],
-                    $employee
-                );
-            }
-
-            // Auto-calculate expiry date if not provided
-            if (empty($data['expiry_date']) && !empty($data['issue_date'])) {
-                $data['expiry_date'] = $this->calculateExpiryDate($data['issue_date'], $trainingType);
-            }
-
-            // Determine initial status
-            $data['status'] = $this->determineStatus($data['expiry_date']);
-
-            $certificate = TrainingRecord::create($data);
-
-            // Log certificate creation
-            Log::info('Certificate created', [
-                'certificate_id' => $certificate->id,
-                'employee_id' => $employee->employee_id,
-                'training_type' => $trainingType->name,
-                'certificate_number' => $certificate->certificate_number
-            ]);
-
-            DB::commit();
-
-            return $certificate;
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to create certificate', [
-                'error' => $e->getMessage(),
-                'data' => $data
-            ]);
-            throw $e;
+        // Create new certificate with extended validity
+        $newExpiryDate = null;
+        if ($trainingType->validity_months) {
+            $newExpiryDate = now()->addMonths($trainingType->validity_months);
         }
+
+        $renewalCertificateData = array_merge([
+            'training_record_id' => $certificate->training_record_id,
+            'certificate_number' => Certificate::generateCertificateNumber($trainingType->code),
+            'issued_by' => $certificate->issued_by,
+            'issue_date' => now(),
+            'expiry_date' => $newExpiryDate,
+            'is_verified' => true,
+            'verification_date' => now(),
+            'verified_by_id' => auth()->id(),
+            'notes' => 'Renewal of certificate: ' . $certificate->certificate_number
+        ], $renewalData);
+
+        $newCertificate = Certificate::create($renewalCertificateData);
+
+        // Generate QR code for new certificate
+        $this->generateQrCode($newCertificate);
+
+        // Mark old certificate as superseded (optional)
+        $certificate->update([
+            'notes' => ($certificate->notes ? $certificate->notes . "\n" : '') .
+                      'Superseded by certificate: ' . $newCertificate->certificate_number
+        ]);
+
+        return $newCertificate;
     }
 
     /**
-     * Renew an existing certificate
+     * Validate certificate authenticity
      */
-    public function renewCertificate(TrainingRecord $certificate, array $renewalData): TrainingRecord
+    public function validateCertificate(Certificate $certificate): array
     {
-        DB::beginTransaction();
+        $validations = [];
 
-        try {
-            // Generate new certificate number
-            $renewalData['certificate_number'] = $this->generateCertificateNumber(
-                $certificate->trainingType,
-                $renewalData['issuer'] ?? $certificate->issuer,
-                $certificate->employee
-            );
+        // Check if certificate exists and is valid
+        $validations['exists'] = true;
 
-            // Calculate new expiry date
-            $renewalData['expiry_date'] = $this->calculateExpiryDate(
-                $renewalData['issue_date'],
-                $certificate->trainingType
-            );
+        // Check verification status
+        $validations['is_verified'] = $certificate->is_verified;
 
-            // Determine status
-            $renewalData['status'] = $this->determineStatus($renewalData['expiry_date']);
+        // Check expiry status
+        $validations['is_expired'] = !$certificate->isValid();
+        $validations['days_until_expiry'] = $certificate->days_until_expiry;
 
-            // Add renewal notes
-            $renewalData['notes'] = ($renewalData['notes'] ?? '') .
-                " [Renewed from: {$certificate->certificate_number}]";
+        // Check digital signature (if implemented)
+        $validations['signature_valid'] = !empty($certificate->digital_signature);
 
-            // Create new certificate record
-            $newCertificate = TrainingRecord::create([
-                'employee_id' => $certificate->employee_id,
-                'training_type_id' => $certificate->training_type_id,
-                'certificate_number' => $renewalData['certificate_number'],
-                'issuer' => $renewalData['issuer'] ?? $certificate->issuer,
-                'issue_date' => $renewalData['issue_date'],
-                'expiry_date' => $renewalData['expiry_date'],
-                'status' => $renewalData['status'],
-                'notes' => $renewalData['notes']
-            ]);
+        // Check associated training record
+        $validations['training_record_exists'] = $certificate->trainingRecord !== null;
+        $validations['employee_exists'] = $certificate->trainingRecord?->employee !== null;
 
-            // Mark old certificate as superseded
-            $certificate->update([
-                'status' => 'superseded',
-                'notes' => ($certificate->notes ?? '') . " [Superseded by: {$newCertificate->certificate_number}]"
-            ]);
+        // Check file existence
+        $validations['file_exists'] = $certificate->certificate_file_path &&
+                                    Storage::exists($certificate->certificate_file_path);
 
-            // Log renewal
-            Log::info('Certificate renewed', [
-                'old_certificate_id' => $certificate->id,
-                'new_certificate_id' => $newCertificate->id,
-                'employee_id' => $certificate->employee->employee_id,
-                'training_type' => $certificate->trainingType->name
-            ]);
+        // Check QR code existence
+        $validations['qr_code_exists'] = $certificate->qr_code_path &&
+                                       Storage::exists($certificate->qr_code_path);
 
-            DB::commit();
+        // Overall validity
+        $validations['overall_valid'] = $validations['exists'] &&
+                                      $validations['is_verified'] &&
+                                      !$validations['is_expired'] &&
+                                      $validations['training_record_exists'];
 
-            return $newCertificate;
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to renew certificate', [
-                'certificate_id' => $certificate->id,
-                'error' => $e->getMessage(),
-                'renewal_data' => $renewalData
-            ]);
-            throw $e;
-        }
+        return $validations;
     }
 
     /**
-     * Get certificate lifecycle history
+     * Export certificates to Excel
      */
-    public function getCertificateHistory(TrainingRecord $certificate): array
+    public function exportToExcel($certificates, string $filename = null): \Symfony\Component\HttpFoundation\BinaryFileResponse
     {
-        $employee = $certificate->employee;
-        $trainingType = $certificate->trainingType;
+        $filename = $filename ?: 'certificates_' . date('Y-m-d_H-i-s') . '.xlsx';
 
-        // Get all certificates for this employee and training type
-        $allCertificates = TrainingRecord::where('employee_id', $employee->id)
-            ->where('training_type_id', $trainingType->id)
-            ->orderBy('issue_date', 'asc')
-            ->get();
+        return Excel::download(new CertificatesExport($certificates), $filename);
+    }
+
+    /**
+     * Get certificate statistics for an employee
+     */
+    public function getEmployeeCertificateStatistics(Employee $employee): array
+    {
+        $certificates = $employee->certificates();
 
         return [
-            'current_certificate' => $certificate,
-            'all_certificates' => $allCertificates,
-            'renewal_count' => $allCertificates->count() - 1,
-            'first_certification_date' => $allCertificates->first()->issue_date ?? null,
-            'total_years_certified' => $this->calculateTotalYearsCertified($allCertificates),
-            'gaps_in_certification' => $this->findCertificationGaps($allCertificates)
+            'total_certificates' => $certificates->count(),
+            'active_certificates' => $certificates->active()->count(),
+            'expired_certificates' => $certificates->expired()->count(),
+            'expiring_soon_certificates' => $certificates->expiringSoon(30)->count(),
+            'verified_certificates' => $certificates->verified()->count(),
+            'latest_certificate' => $certificates->latest()->first(),
+            'next_expiry' => $certificates->active()
+                ->whereNotNull('expiry_date')
+                ->orderBy('expiry_date')
+                ->first()
         ];
     }
 
     /**
-     * Get certificates requiring renewal
+     * Get certificate statistics for a department
      */
-    public function getCertificatesRequiringRenewal(int $daysAhead = 30): array
+    public function getDepartmentCertificateStatistics($departmentId): array
     {
-        $cutoffDate = Carbon::now()->addDays($daysAhead);
+        $certificates = Certificate::whereHas('trainingRecord.employee', function ($query) use ($departmentId) {
+            $query->where('department_id', $departmentId);
+        });
 
-        $certificates = TrainingRecord::with(['employee.department', 'trainingType'])
-            ->where('expiry_date', '<=', $cutoffDate)
-            ->where('expiry_date', '>=', Carbon::now())
-            ->whereIn('status', ['active', 'expiring_soon'])
-            ->orderBy('expiry_date', 'asc')
-            ->get();
+        $employeeCount = Employee::where('department_id', $departmentId)->count();
 
         return [
-            'certificates' => $certificates,
-            'by_department' => $certificates->groupBy('employee.department.name'),
-            'by_training_type' => $certificates->groupBy('trainingType.name'),
-            'by_urgency' => [
-                'critical' => $certificates->filter(fn($cert) => Carbon::parse($cert->expiry_date)->diffInDays(Carbon::now()) <= 7),
-                'urgent' => $certificates->filter(fn($cert) => Carbon::parse($cert->expiry_date)->diffInDays(Carbon::now()) <= 14),
-                'upcoming' => $certificates->filter(fn($cert) => Carbon::parse($cert->expiry_date)->diffInDays(Carbon::now()) <= 30)
+            'total_certificates' => $certificates->count(),
+            'active_certificates' => $certificates->active()->count(),
+            'expired_certificates' => $certificates->expired()->count(),
+            'expiring_soon_certificates' => $certificates->expiringSoon(30)->count(),
+            'verified_certificates' => $certificates->verified()->count(),
+            'employee_count' => $employeeCount,
+            'certificates_per_employee' => $employeeCount > 0 ?
+                round($certificates->count() / $employeeCount, 2) : 0,
+            'compliance_rate' => $this->calculateDepartmentComplianceRate($departmentId)
+        ];
+    }
+
+    /**
+     * Calculate compliance rate for a department
+     */
+    private function calculateDepartmentComplianceRate($departmentId): float
+    {
+        $employees = Employee::where('department_id', $departmentId)->where('status', 'active');
+        $totalEmployees = $employees->count();
+
+        if ($totalEmployees === 0) return 100.0;
+
+        // Count employees with all required certificates
+        $compliantEmployees = $employees->whereHas('trainingRecords', function ($query) {
+            $query->whereHas('trainingType', function ($typeQuery) {
+                $typeQuery->where('is_mandatory', true);
+            })->whereHas('certificates', function ($certQuery) {
+                $certQuery->active();
+            });
+        })->count();
+
+        return round(($compliantEmployees / $totalEmployees) * 100, 2);
+    }
+
+    /**
+     * Get certificates expiring in specific periods
+     */
+    public function getCertificatesExpiringInPeriods(): array
+    {
+        return [
+            'expiring_in_7_days' => Certificate::expiringIn(7)->count(),
+            'expiring_in_30_days' => Certificate::expiringSoon(30)->count(),
+            'expiring_in_60_days' => Certificate::expiringSoon(60)->count(),
+            'expiring_in_90_days' => Certificate::expiringSoon(90)->count(),
+            'expired' => Certificate::expired()->count()
+        ];
+    }
+
+    /**
+     * Generate certificate compliance report
+     */
+    public function generateComplianceReport(array $filters = []): array
+    {
+        $query = Certificate::with([
+            'trainingRecord.employee.department',
+            'trainingRecord.trainingType.category'
+        ]);
+
+        // Apply filters
+        if (isset($filters['department_ids'])) {
+            $query->whereHas('trainingRecord.employee', function ($q) use ($filters) {
+                $q->whereIn('department_id', $filters['department_ids']);
+            });
+        }
+
+        if (isset($filters['training_type_ids'])) {
+            $query->whereHas('trainingRecord', function ($q) use ($filters) {
+                $q->whereIn('training_type_id', $filters['training_type_ids']);
+            });
+        }
+
+        if (isset($filters['status'])) {
+            switch ($filters['status']) {
+                case 'active':
+                    $query->active();
+                    break;
+                case 'expired':
+                    $query->expired();
+                    break;
+                case 'expiring_soon':
+                    $query->expiringSoon(30);
+                    break;
+            }
+        }
+
+        $certificates = $query->get();
+
+        // Group by various dimensions
+        $byDepartment = $certificates->groupBy('trainingRecord.employee.department.name');
+        $byTrainingType = $certificates->groupBy('trainingRecord.trainingType.name');
+        $byStatus = $certificates->groupBy('status');
+
+        return [
+            'total_certificates' => $certificates->count(),
+            'by_department' => $byDepartment->map->count(),
+            'by_training_type' => $byTrainingType->map->count(),
+            'by_status' => $byStatus->map->count(),
+            'summary' => [
+                'active' => $certificates->where('status', 'active')->count(),
+                'expired' => $certificates->where('status', 'expired')->count(),
+                'expiring_soon' => $certificates->where('status', 'expiring_soon')->count(),
+                'verified' => $certificates->where('is_verified', true)->count()
             ]
         ];
     }
 
     /**
-     * Validate certificate data
+     * Auto-create certificates for completed training records without certificates
      */
-    public function validateCertificateData(array $data): array
+    public function autoCreateMissingCertificates(): array
     {
-        $errors = [];
+        $trainingRecords = TrainingRecord::where('status', 'completed')
+            ->whereDoesntHave('certificates')
+            ->whereHas('trainingType', function ($query) {
+                $query->where('requires_certification', true);
+            })
+            ->with(['employee', 'trainingType'])
+            ->get();
 
-        // Check if employee exists
-        if (!Employee::find($data['employee_id'] ?? null)) {
-            $errors['employee_id'] = 'Employee not found';
-        }
+        $results = [];
 
-        // Check if training type exists
-        if (!TrainingType::find($data['training_type_id'] ?? null)) {
-            $errors['training_type_id'] = 'Training type not found';
-        }
+        foreach ($trainingRecords as $record) {
+            try {
+                $certificate = $this->createCertificateFromTrainingRecord($record);
 
-        // Check certificate number uniqueness
-        if (!empty($data['certificate_number'])) {
-            $existing = TrainingRecord::where('certificate_number', $data['certificate_number'])
-                ->when(isset($data['id']), fn($q) => $q->where('id', '!=', $data['id']))
-                ->exists();
-
-            if ($existing) {
-                $errors['certificate_number'] = 'Certificate number already exists';
-            }
-        }
-
-        // Validate dates
-        if (!empty($data['issue_date']) && !empty($data['expiry_date'])) {
-            $issueDate = Carbon::parse($data['issue_date']);
-            $expiryDate = Carbon::parse($data['expiry_date']);
-
-            if ($expiryDate->lte($issueDate)) {
-                $errors['expiry_date'] = 'Expiry date must be after issue date';
-            }
-        }
-
-        return $errors;
-    }
-
-    /**
-     * Get certificate statistics
-     */
-    public function getCertificateStatistics(): array
-    {
-        $stats = TrainingRecord::selectRaw('
-            COUNT(*) as total,
-            COUNT(CASE WHEN status = "active" THEN 1 END) as active,
-            COUNT(CASE WHEN status = "expiring_soon" THEN 1 END) as expiring_soon,
-            COUNT(CASE WHEN status = "expired" THEN 1 END) as expired,
-            COUNT(CASE WHEN status = "superseded" THEN 1 END) as superseded
-        ')->first();
-
-        $byMonth = TrainingRecord::selectRaw('
-            YEAR(issue_date) as year,
-            MONTH(issue_date) as month,
-            COUNT(*) as count
-        ')
-        ->whereYear('issue_date', Carbon::now()->year)
-        ->groupBy('year', 'month')
-        ->orderBy('year')
-        ->orderBy('month')
-        ->get();
-
-        $expiringThisMonth = TrainingRecord::whereMonth('expiry_date', Carbon::now()->month)
-            ->whereYear('expiry_date', Carbon::now()->year)
-            ->whereIn('status', ['active', 'expiring_soon'])
-            ->count();
-
-        return [
-            'totals' => $stats,
-            'by_month' => $byMonth,
-            'expiring_this_month' => $expiringThisMonth,
-            'compliance_rate' => $stats->total > 0 ? round(($stats->active / $stats->total) * 100, 2) : 0
-        ];
-    }
-
-    /**
-     * Determine certificate status based on expiry date
-     */
-    private function determineStatus(string $expiryDate): string
-    {
-        $expiry = Carbon::parse($expiryDate);
-        $now = Carbon::now();
-        $daysUntilExpiry = $now->diffInDays($expiry, false);
-
-        if ($expiry->isPast()) {
-            return 'expired';
-        } elseif ($daysUntilExpiry <= 30) {
-            return 'expiring_soon';
-        } else {
-            return 'active';
-        }
-    }
-
-    /**
-     * Calculate total years an employee has been certified
-     */
-    private function calculateTotalYearsCertified($certificates): float
-    {
-        if ($certificates->isEmpty()) {
-            return 0;
-        }
-
-        $firstCert = $certificates->sortBy('issue_date')->first();
-        $lastCert = $certificates->sortBy('expiry_date')->last();
-
-        $startDate = Carbon::parse($firstCert->issue_date);
-        $endDate = min(Carbon::parse($lastCert->expiry_date), Carbon::now());
-
-        return round($startDate->diffInYears($endDate, true), 1);
-    }
-
-    /**
-     * Find gaps in certification history
-     */
-    private function findCertificationGaps($certificates): array
-    {
-        $gaps = [];
-        $sortedCerts = $certificates->sortBy('issue_date');
-
-        for ($i = 0; $i < $sortedCerts->count() - 1; $i++) {
-            $currentExpiry = Carbon::parse($sortedCerts[$i]->expiry_date);
-            $nextIssue = Carbon::parse($sortedCerts[$i + 1]->issue_date);
-
-            if ($nextIssue->gt($currentExpiry)) {
-                $gaps[] = [
-                    'start' => $currentExpiry->toDateString(),
-                    'end' => $nextIssue->toDateString(),
-                    'duration_days' => $currentExpiry->diffInDays($nextIssue)
+                $results[] = [
+                    'training_record_id' => $record->id,
+                    'certificate_id' => $certificate->id,
+                    'employee_name' => $record->employee->name,
+                    'training_name' => $record->trainingType->name,
+                    'status' => 'created'
+                ];
+            } catch (\Exception $e) {
+                $results[] = [
+                    'training_record_id' => $record->id,
+                    'employee_name' => $record->employee->name,
+                    'training_name' => $record->trainingType->name,
+                    'status' => 'error',
+                    'error' => $e->getMessage()
                 ];
             }
         }
 
-        return $gaps;
-    }
-
-    /**
-     * Generate certificate audit trail
-     */
-    public function getCertificateAuditTrail(TrainingRecord $certificate): array
-    {
-        return [
-            'certificate_id' => $certificate->id,
-            'employee' => $certificate->employee->name,
-            'employee_id' => $certificate->employee->employee_id,
-            'training_type' => $certificate->trainingType->name,
-            'certificate_number' => $certificate->certificate_number,
-            'issuer' => $certificate->issuer,
-            'issue_date' => $certificate->issue_date,
-            'expiry_date' => $certificate->expiry_date,
-            'status' => $certificate->status,
-            'created_at' => $certificate->created_at,
-            'updated_at' => $certificate->updated_at,
-            'notes' => $certificate->notes,
-            'related_certificates' => $this->getRelatedCertificates($certificate),
-            'compliance_status' => $this->getCertificateComplianceStatus($certificate)
-        ];
-    }
-
-    /**
-     * Get related certificates (renewals, superseded)
-     */
-    private function getRelatedCertificates(TrainingRecord $certificate): array
-    {
-        return TrainingRecord::where('employee_id', $certificate->employee_id)
-            ->where('training_type_id', $certificate->training_type_id)
-            ->where('id', '!=', $certificate->id)
-            ->orderBy('issue_date')
-            ->get()
-            ->toArray();
-    }
-
-    /**
-     * Get certificate compliance status
-     */
-    private function getCertificateComplianceStatus(TrainingRecord $certificate): array
-    {
-        $now = Carbon::now();
-        $expiry = Carbon::parse($certificate->expiry_date);
-        $issue = Carbon::parse($certificate->issue_date);
-
-        return [
-            'is_current' => $certificate->status === 'active',
-            'days_until_expiry' => $now->diffInDays($expiry, false),
-            'certificate_age_days' => $issue->diffInDays($now),
-            'compliance_level' => $this->getComplianceLevel($certificate->status),
-            'action_required' => $this->getActionRequired($certificate->status, $now->diffInDays($expiry, false))
-        ];
-    }
-
-    /**
-     * Get compliance level based on status
-     */
-    private function getComplianceLevel(string $status): string
-    {
-        return match ($status) {
-            'active' => 'compliant',
-            'expiring_soon' => 'warning',
-            'expired' => 'non_compliant',
-            'superseded' => 'superseded',
-            default => 'unknown'
-        };
-    }
-
-    /**
-     * Get action required based on status and days to expiry
-     */
-    private function getActionRequired(string $status, int $daysToExpiry): string
-    {
-        if ($status === 'expired') {
-            return 'immediate_renewal_required';
-        } elseif ($status === 'expiring_soon') {
-            if ($daysToExpiry <= 7) {
-                return 'urgent_renewal_required';
-            } elseif ($daysToExpiry <= 14) {
-                return 'schedule_renewal';
-            } else {
-                return 'plan_renewal';
-            }
-        } elseif ($status === 'active') {
-            return 'no_action_required';
-        }
-
-        return 'review_required';
+        return $results;
     }
 }

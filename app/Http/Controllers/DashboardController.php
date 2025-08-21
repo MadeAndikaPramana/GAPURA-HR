@@ -5,489 +5,566 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\Employee;
-use App\Models\TrainingRecord;
-use App\Models\TrainingType;
 use App\Models\Department;
-use App\Services\TrainingStatusService;
+use App\Models\TrainingRecord;
+use App\Models\Certificate;
+use App\Models\TrainingType;
+use App\Models\TrainingCategory;
+use App\Models\Notification;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
-use Maatwebsite\Excel\Facades\Excel;
 
 class DashboardController extends Controller
 {
-    protected $trainingStatusService;
-
-    public function __construct(TrainingStatusService $trainingStatusService)
-    {
-        $this->trainingStatusService = $trainingStatusService;
-    }
-
     /**
-     * Display the main dashboard with comprehensive statistics
+     * Display the training dashboard
      */
     public function index(Request $request)
     {
-        // Get main statistics
-        $stats = $this->getMainStatistics();
+        // Get current user
+        $user = auth()->user();
 
-        // Get compliance by department
-        $complianceByDepartment = $this->getComplianceByDepartment();
+        // Determine dashboard type based on user role/permissions
+        $dashboardType = $this->determineDashboardType($user);
 
-        // Get upcoming expirations
-        $upcomingExpirations = $this->getUpcomingExpirations();
+        switch ($dashboardType) {
+            case 'executive':
+                return $this->executiveDashboard($request);
+            case 'manager':
+                return $this->managerDashboard($request, $user);
+            case 'hr':
+                return $this->hrDashboard($request);
+            case 'employee':
+                return $this->employeeDashboard($request, $user);
+            default:
+                return $this->hrDashboard($request); // Default to HR dashboard
+        }
+    }
 
-        // Get recent activities
-        $recentActivities = $this->getRecentActivities();
+    /**
+     * Executive Dashboard - High-level overview
+     */
+    protected function executiveDashboard(Request $request)
+    {
+        $timeRange = $request->get('range', '30'); // days
+        $startDate = now()->subDays($timeRange);
 
-        // Get monthly trends
-        $monthlyTrends = $this->getMonthlyTrends();
+        // Key Performance Indicators
+        $kpis = [
+            'overall_compliance' => $this->calculateOverallComplianceRate(),
+            'total_employees' => Employee::where('status', 'active')->count(),
+            'total_training_hours' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', $startDate)
+                ->sum('training_hours'),
+            'training_investment' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', $startDate)
+                ->sum('cost'),
+            'active_certificates' => Certificate::active()->count(),
+            'expiring_certificates' => Certificate::expiringSoon(30)->count(),
+            'critical_gaps' => $this->getCriticalComplianceGaps()
+        ];
 
-        return Inertia::render('Dashboard', [
-            'stats' => $stats,
-            'complianceByDepartment' => $complianceByDepartment,
-            'upcomingExpirations' => $upcomingExpirations,
-            'recentActivities' => $recentActivities,
-            'monthlyTrends' => $monthlyTrends
+        // Compliance trends by month
+        $complianceTrends = $this->getComplianceTrends(12);
+
+        // Department performance comparison
+        $departmentPerformance = $this->getDepartmentPerformanceComparison();
+
+        // Training ROI analysis
+        $trainingROI = $this->calculateTrainingROI($timeRange);
+
+        // Risk indicators
+        $riskIndicators = $this->getRiskIndicators();
+
+        // Recent achievements
+        $achievements = $this->getRecentAchievements($timeRange);
+
+        return Inertia::render('Dashboard/Executive', [
+            'kpis' => $kpis,
+            'complianceTrends' => $complianceTrends,
+            'departmentPerformance' => $departmentPerformance,
+            'trainingROI' => $trainingROI,
+            'riskIndicators' => $riskIndicators,
+            'achievements' => $achievements,
+            'timeRange' => $timeRange
         ]);
     }
 
     /**
-     * Get main dashboard statistics
+     * Manager Dashboard - Department-focused view
      */
-    private function getMainStatistics()
+    protected function managerDashboard(Request $request, $user)
     {
-        // Current counts
-        $totalEmployees = Employee::count();
-        $activeEmployees = Employee::where('status', 'active')->count();
-        $totalCertificates = TrainingRecord::count();
-        $activeCertificates = TrainingRecord::where('status', 'active')->count();
-        $expiringSoon = TrainingRecord::where('status', 'expiring_soon')->count();
-        $expired = TrainingRecord::where('status', 'expired')->count();
+        $managedDepartments = Department::where('manager_id', $user->id)->get();
+        $departmentIds = $managedDepartments->pluck('id');
 
-        // Previous period for trends (30 days ago)
-        $previousPeriodStart = Carbon::now()->subDays(60);
-        $previousPeriodEnd = Carbon::now()->subDays(30);
-        $currentPeriodStart = Carbon::now()->subDays(30);
-
-        // Calculate trends
-        $previousEmployees = Employee::where('created_at', '>=', $previousPeriodStart)
-            ->where('created_at', '<', $previousPeriodEnd)
-            ->count();
-        $currentEmployees = Employee::where('created_at', '>=', $currentPeriodStart)
-            ->count();
-        $employeeTrend = $currentEmployees - $previousEmployees;
-
-        $previousCertificates = TrainingRecord::where('created_at', '>=', $previousPeriodStart)
-            ->where('created_at', '<', $previousPeriodEnd)
-            ->count();
-        $currentCertificates = TrainingRecord::where('created_at', '>=', $currentPeriodStart)
-            ->count();
-        $certificateTrend = $currentCertificates - $previousCertificates;
-
-        $previousActive = TrainingRecord::where('created_at', '>=', $previousPeriodStart)
-            ->where('created_at', '<', $previousPeriodEnd)
-            ->where('status', 'active')
-            ->count();
-        $currentActive = TrainingRecord::where('created_at', '>=', $currentPeriodStart)
-            ->where('status', 'active')
-            ->count();
-        $activeTrend = $currentActive - $previousActive;
-
-        return [
-            'total_employees' => $totalEmployees,
-            'active_employees' => $activeEmployees,
-            'total_certificates' => $totalCertificates,
-            'active_certificates' => $activeCertificates,
-            'expiring_certificates' => $expiringSoon,
-            'expired_certificates' => $expired,
-            'employee_trend' => $employeeTrend,
-            'certificate_trend' => $certificateTrend,
-            'active_trend' => $activeTrend,
-            'overall_compliance_rate' => $totalCertificates > 0 ? round(($activeCertificates / $totalCertificates) * 100, 1) : 0
+        // Team compliance overview
+        $teamOverview = [
+            'total_team_members' => Employee::whereIn('department_id', $departmentIds)
+                ->where('status', 'active')->count(),
+            'compliant_members' => Employee::whereIn('department_id', $departmentIds)
+                ->where('status', 'active')
+                ->whereDoesntHave('trainingRecords', function ($query) {
+                    $query->where('compliance_status', 'expired')
+                          ->whereHas('trainingType', function ($typeQuery) {
+                              $typeQuery->where('is_mandatory', true);
+                          });
+                })->count(),
+            'members_with_expiring_certs' => Employee::whereIn('department_id', $departmentIds)
+                ->whereHas('certificates', function ($query) {
+                    $query->expiringSoon(30);
+                })->count(),
+            'pending_training_requests' => TrainingRecord::whereHas('employee', function ($query) use ($departmentIds) {
+                    $query->whereIn('department_id', $departmentIds);
+                })->where('status', 'registered')->count()
         ];
-    }
 
-    /**
-     * Get compliance statistics by department
-     */
-    private function getComplianceByDepartment()
-    {
-        return DB::table('departments')
-            ->leftJoin('employees', 'departments.id', '=', 'employees.department_id')
-            ->leftJoin('training_records', function($join) {
-                $join->on('employees.id', '=', 'training_records.employee_id');
+        // Individual team member compliance
+        $teamCompliance = Employee::whereIn('department_id', $departmentIds)
+            ->where('status', 'active')
+            ->with(['department', 'trainingRecords.trainingType'])
+            ->get()
+            ->map(function ($employee) {
+                return [
+                    'employee' => $employee,
+                    'compliance_summary' => $employee->getTrainingComplianceSummary(),
+                    'upcoming_trainings' => $employee->getUpcomingTrainings(),
+                    'expiring_certificates' => $employee->certificates()
+                        ->expiringSoon(60)
+                        ->with('trainingRecord.trainingType')
+                        ->get()
+                ];
+            });
+
+        // Department training schedule
+        $upcomingTrainings = TrainingRecord::whereHas('employee', function ($query) use ($departmentIds) {
+                $query->whereIn('department_id', $departmentIds);
             })
-            ->selectRaw('
-                departments.id as department_id,
-                departments.name as department_name,
-                departments.code as department_code,
-                COUNT(DISTINCT employees.id) as total_employees,
-                COUNT(DISTINCT CASE WHEN employees.status = "active" THEN employees.id END) as active_employees,
-                COUNT(training_records.id) as total_certificates,
-                COUNT(CASE WHEN training_records.status = "active" THEN training_records.id END) as active_certificates,
-                COUNT(CASE WHEN training_records.status = "expiring_soon" THEN training_records.id END) as expiring_certificates,
-                COUNT(CASE WHEN training_records.status = "expired" THEN training_records.id END) as expired_certificates,
-                ROUND(
-                    CASE
-                        WHEN COUNT(training_records.id) > 0
-                        THEN (COUNT(CASE WHEN training_records.status = "active" THEN training_records.id END) / COUNT(training_records.id)) * 100
-                        ELSE 0
-                    END, 1
-                ) as compliance_rate
+            ->where('training_date', '>=', now())
+            ->where('training_date', '<=', now()->addDays(30))
+            ->with(['employee', 'trainingType', 'trainingProvider'])
+            ->orderBy('training_date')
+            ->get();
+
+        // Training budget utilization
+        $budgetUtilization = $this->getDepartmentBudgetUtilization($departmentIds);
+
+        return Inertia::render('Dashboard/Manager', [
+            'managedDepartments' => $managedDepartments,
+            'teamOverview' => $teamOverview,
+            'teamCompliance' => $teamCompliance,
+            'upcomingTrainings' => $upcomingTrainings,
+            'budgetUtilization' => $budgetUtilization
+        ]);
+    }
+
+    /**
+     * HR Dashboard - Operational focus
+     */
+    protected function hrDashboard(Request $request)
+    {
+        // Quick stats
+        $quickStats = [
+            'total_employees' => Employee::where('status', 'active')->count(),
+            'total_trainings' => TrainingRecord::count(),
+            'valid_certificates' => Certificate::active()->count(),
+            'expiring_soon' => Certificate::expiringSoon(30)->count(),
+            'expired_certificates' => Certificate::expired()->count(),
+            'pending_registrations' => TrainingRecord::where('status', 'registered')->count()
+        ];
+
+        // Compliance overview by department
+        $departmentCompliance = Department::with('employees')->get()->map(function ($department) {
+            $totalEmployees = $department->employees->where('status', 'active')->count();
+            $compliantEmployees = $department->employees->where('status', 'active')->filter(function ($employee) {
+                return $employee->compliance_status === 'compliant';
+            })->count();
+
+            return [
+                'id' => $department->id,
+                'name' => $department->name,
+                'code' => $department->code,
+                'total_employees' => $totalEmployees,
+                'compliant_employees' => $compliantEmployees,
+                'compliance_rate' => $totalEmployees > 0 ? round(($compliantEmployees / $totalEmployees) * 100, 1) : 0,
+                'expiring_soon' => Certificate::expiringSoon(30)
+                    ->whereHas('trainingRecord.employee', function ($query) use ($department) {
+                        $query->where('department_id', $department->id);
+                    })->count(),
+                'expired' => Certificate::expired()
+                    ->whereHas('trainingRecord.employee', function ($query) use ($department) {
+                        $query->where('department_id', $department->id);
+                    })->count()
+            ];
+        });
+
+        // Training completion trends
+        $completionTrends = TrainingRecord::selectRaw('
+                DATE_FORMAT(completion_date, "%Y-%m") as month,
+                COUNT(*) as completed_count,
+                AVG(score) as average_score
             ')
-            ->where('employees.status', 'active')
-            ->groupBy('departments.id', 'departments.name', 'departments.code')
-            ->orderBy('compliance_rate', 'desc')
-            ->get();
-    }
-
-    /**
-     * Get upcoming certificate expirations
-     */
-    private function getUpcomingExpirations($days = 30)
-    {
-        return TrainingRecord::with(['employee', 'trainingType'])
-            ->join('employees', 'training_records.employee_id', '=', 'employees.id')
-            ->join('training_types', 'training_records.training_type_id', '=', 'training_types.id')
-            ->select(
-                'training_records.*',
-                'employees.name as employee_name',
-                'employees.employee_id as employee_code',
-                'training_types.name as training_type_name'
-            )
-            ->where('training_records.expiry_date', '<=', Carbon::now()->addDays($days))
-            ->where('training_records.expiry_date', '>=', Carbon::now())
-            ->whereIn('training_records.status', ['active', 'expiring_soon'])
-            ->orderBy('training_records.expiry_date', 'asc')
-            ->limit(10)
-            ->get();
-    }
-
-    /**
-     * Get recent training activities
-     */
-    private function getRecentActivities($limit = 10)
-    {
-        return TrainingRecord::with(['employee', 'trainingType'])
-            ->join('employees', 'training_records.employee_id', '=', 'employees.id')
-            ->join('training_types', 'training_records.training_type_id', '=', 'training_types.id')
-            ->select(
-                'training_records.*',
-                'employees.name as employee_name',
-                'employees.employee_id as employee_code',
-                'training_types.name as training_type_name'
-            )
-            ->orderBy('training_records.created_at', 'desc')
-            ->limit($limit)
-            ->get();
-    }
-
-    /**
-     * Get monthly training trends for the current year
-     */
-    private function getMonthlyTrends()
-    {
-        return TrainingRecord::selectRaw('
-                YEAR(created_at) as year,
-                MONTH(created_at) as month,
-                COUNT(*) as certificates_issued,
-                COUNT(CASE WHEN status = "active" THEN 1 END) as active_issued
-            ')
-            ->whereYear('created_at', Carbon::now()->year)
-            ->groupBy('year', 'month')
-            ->orderBy('year')
+            ->where('status', 'completed')
+            ->where('completion_date', '>=', now()->subMonths(12))
+            ->groupBy('month')
             ->orderBy('month')
             ->get();
-    }
 
-    /**
-     * Refresh dashboard data (force update training statuses)
-     */
-    public function refresh()
-    {
-        try {
-            $updated = $this->trainingStatusService->updateAllStatuses();
-
-            return redirect()->route('dashboard')
-                ->with('success', "Dashboard refreshed successfully. {$updated} training statuses updated.");
-        } catch (\Exception $e) {
-            return redirect()->route('dashboard')
-                ->with('error', 'Error refreshing dashboard: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Get dashboard data via API (for AJAX updates)
-     */
-    public function apiData(Request $request)
-    {
-        $data = [
-            'stats' => $this->getMainStatistics(),
-            'compliance_by_department' => $this->getComplianceByDepartment(),
-            'upcoming_expirations' => $this->getUpcomingExpirations(),
-            'recent_activities' => $this->getRecentActivities(),
-            'monthly_trends' => $this->getMonthlyTrends(),
-            'timestamp' => now()->toISOString()
-        ];
-
-        return response()->json($data);
-    }
-
-    /**
-     * Export comprehensive dashboard report
-     */
-    public function export(Request $request)
-    {
-        $stats = $this->getMainStatistics();
-        $complianceByDepartment = $this->getComplianceByDepartment();
-        $upcomingExpirations = $this->getUpcomingExpirations(60); // Extended for report
-        $monthlyTrends = $this->getMonthlyTrends();
-
-        // Prepare data for multiple sheets
-        $exportData = [
-            'summary' => [
-                [
-                    'Metric' => 'Total Employees',
-                    'Value' => $stats['total_employees'],
-                    'Active' => $stats['active_employees'],
-                    'Trend' => $stats['employee_trend'] > 0 ? '+' . $stats['employee_trend'] : $stats['employee_trend']
-                ],
-                [
-                    'Metric' => 'Total Certificates',
-                    'Value' => $stats['total_certificates'],
-                    'Active' => $stats['active_certificates'],
-                    'Trend' => $stats['certificate_trend'] > 0 ? '+' . $stats['certificate_trend'] : $stats['certificate_trend']
-                ],
-                [
-                    'Metric' => 'Expiring Soon',
-                    'Value' => $stats['expiring_certificates'],
-                    'Active' => '-',
-                    'Trend' => 'Next 30 days'
-                ],
-                [
-                    'Metric' => 'Expired',
-                    'Value' => $stats['expired_certificates'],
-                    'Active' => '-',
-                    'Trend' => 'Action Required'
-                ],
-                [
-                    'Metric' => 'Overall Compliance Rate',
-                    'Value' => $stats['overall_compliance_rate'] . '%',
-                    'Active' => '-',
-                    'Trend' => $stats['overall_compliance_rate'] >= 90 ? 'Excellent' : ($stats['overall_compliance_rate'] >= 80 ? 'Good' : 'Needs Improvement')
-                ]
-            ],
-            'department_compliance' => $complianceByDepartment->map(function($dept) {
-                return [
-                    'Department' => $dept->department_name,
-                    'Code' => $dept->department_code,
-                    'Total Employees' => $dept->total_employees,
-                    'Active Employees' => $dept->active_employees,
-                    'Total Certificates' => $dept->total_certificates,
-                    'Active Certificates' => $dept->active_certificates,
-                    'Expiring Certificates' => $dept->expiring_certificates,
-                    'Expired Certificates' => $dept->expired_certificates,
-                    'Compliance Rate %' => $dept->compliance_rate
-                ];
-            })->toArray(),
-            'upcoming_expirations' => $upcomingExpirations->map(function($exp) {
-                return [
-                    'Employee' => $exp->employee_name,
-                    'Employee ID' => $exp->employee_code,
-                    'Training Type' => $exp->training_type_name,
-                    'Certificate Number' => $exp->certificate_number,
-                    'Issue Date' => $exp->issue_date,
-                    'Expiry Date' => $exp->expiry_date,
-                    'Status' => ucfirst(str_replace('_', ' ', $exp->status)),
-                    'Days Until Expiry' => Carbon::parse($exp->expiry_date)->diffInDays(Carbon::now()),
-                    'Issuer' => $exp->issuer
-                ];
-            })->toArray(),
-            'monthly_trends' => $monthlyTrends->map(function($trend) {
-                return [
-                    'Year' => $trend->year,
-                    'Month' => $trend->month,
-                    'Month Name' => Carbon::create($trend->year, $trend->month, 1)->format('F'),
-                    'Certificates Issued' => $trend->certificates_issued,
-                    'Active Certificates' => $trend->active_issued
-                ];
-            })->toArray()
-        ];
-
-        return Excel::download(new class($exportData) implements
-            \Maatwebsite\Excel\Concerns\WithMultipleSheets
-        {
-            private $data;
-
-            public function __construct($data) {
-                $this->data = $data;
-            }
-
-            public function sheets(): array {
-                return [
-                    'Summary' => new class($this->data['summary']) implements
-                        \Maatwebsite\Excel\Concerns\FromArray,
-                        \Maatwebsite\Excel\Concerns\WithHeadings,
-                        \Maatwebsite\Excel\Concerns\WithStyles,
-                        \Maatwebsite\Excel\Concerns\WithTitle
-                    {
-                        private $data;
-                        public function __construct($data) { $this->data = $data; }
-                        public function array(): array { return $this->data; }
-                        public function headings(): array { return ['Metric', 'Value', 'Active', 'Trend']; }
-                        public function title(): string { return 'Summary'; }
-                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
-                            return [1 => ['font' => ['bold' => true]]];
-                        }
-                    },
-                    'Department Compliance' => new class($this->data['department_compliance']) implements
-                        \Maatwebsite\Excel\Concerns\FromArray,
-                        \Maatwebsite\Excel\Concerns\WithHeadings,
-                        \Maatwebsite\Excel\Concerns\WithStyles,
-                        \Maatwebsite\Excel\Concerns\WithTitle
-                    {
-                        private $data;
-                        public function __construct($data) { $this->data = $data; }
-                        public function array(): array { return $this->data; }
-                        public function headings(): array {
-                            return ['Department', 'Code', 'Total Employees', 'Active Employees',
-                                   'Total Certificates', 'Active Certificates', 'Expiring Certificates',
-                                   'Expired Certificates', 'Compliance Rate %'];
-                        }
-                        public function title(): string { return 'Department Compliance'; }
-                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
-                            return [1 => ['font' => ['bold' => true]]];
-                        }
-                    },
-                    'Upcoming Expirations' => new class($this->data['upcoming_expirations']) implements
-                        \Maatwebsite\Excel\Concerns\FromArray,
-                        \Maatwebsite\Excel\Concerns\WithHeadings,
-                        \Maatwebsite\Excel\Concerns\WithStyles,
-                        \Maatwebsite\Excel\Concerns\WithTitle
-                    {
-                        private $data;
-                        public function __construct($data) { $this->data = $data; }
-                        public function array(): array { return $this->data; }
-                        public function headings(): array {
-                            return ['Employee', 'Employee ID', 'Training Type', 'Certificate Number',
-                                   'Issue Date', 'Expiry Date', 'Status', 'Days Until Expiry', 'Issuer'];
-                        }
-                        public function title(): string { return 'Upcoming Expirations'; }
-                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
-                            return [1 => ['font' => ['bold' => true]]];
-                        }
-                    },
-                    'Monthly Trends' => new class($this->data['monthly_trends']) implements
-                        \Maatwebsite\Excel\Concerns\FromArray,
-                        \Maatwebsite\Excel\Concerns\WithHeadings,
-                        \Maatwebsite\Excel\Concerns\WithStyles,
-                        \Maatwebsite\Excel\Concerns\WithTitle
-                    {
-                        private $data;
-                        public function __construct($data) { $this->data = $data; }
-                        public function array(): array { return $this->data; }
-                        public function headings(): array {
-                            return ['Year', 'Month', 'Month Name', 'Certificates Issued', 'Active Certificates'];
-                        }
-                        public function title(): string { return 'Monthly Trends'; }
-                        public function styles(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet) {
-                            return [1 => ['font' => ['bold' => true]]];
-                        }
-                    }
-                ];
-            }
-        }, 'gapura_training_dashboard_' . Carbon::now()->format('Y-m-d') . '.xlsx');
-    }
-
-    /**
-     * Get specific department dashboard
-     */
-    public function departmentDashboard(Department $department)
-    {
-        $departmentStats = $this->trainingStatusService->getComplianceByDepartment()
-            ->where('department_id', $department->id)
-            ->first();
-
-        $employees = Employee::where('department_id', $department->id)
-            ->with(['trainingRecords.trainingType'])
+        // Training by category
+        $trainingByCategory = TrainingCategory::withCount([
+                'trainingRecords as completed_count' => function ($query) {
+                    $query->where('status', 'completed');
+                },
+                'trainingRecords as active_count' => function ($query) {
+                    $query->where('compliance_status', 'compliant');
+                }
+            ])
             ->get();
 
-        $upcomingExpirations = TrainingRecord::with(['employee', 'trainingType'])
-            ->whereHas('employee', function($q) use ($department) {
-                $q->where('department_id', $department->id);
-            })
-            ->where('expiry_date', '<=', Carbon::now()->addDays(30))
-            ->where('expiry_date', '>=', Carbon::now())
-            ->whereIn('status', ['active', 'expiring_soon'])
-            ->orderBy('expiry_date', 'asc')
-            ->get();
+        // Urgent actions required
+        $urgentActions = [
+            'expired_certificates' => Certificate::expired()
+                ->with(['trainingRecord.employee.department', 'trainingRecord.trainingType'])
+                ->limit(10)
+                ->get(),
+            'expiring_this_week' => Certificate::expiringSoon(7)
+                ->with(['trainingRecord.employee.department', 'trainingRecord.trainingType'])
+                ->limit(10)
+                ->get(),
+            'overdue_training' => TrainingRecord::where('status', 'registered')
+                ->where('training_date', '<', now())
+                ->with(['employee.department', 'trainingType'])
+                ->limit(10)
+                ->get(),
+            'missing_mandatory' => Employee::missingMandatoryTraining()
+                ->with('department')
+                ->limit(10)
+                ->get()
+        ];
 
-        return Inertia::render('Departments/Dashboard', [
-            'department' => $department,
-            'departmentStats' => $departmentStats,
-            'employees' => $employees,
-            'upcomingExpirations' => $upcomingExpirations
+        // Recent activities
+        $recentActivities = $this->getRecentActivities();
+
+        // Provider performance
+        $providerPerformance = $this->getProviderPerformance();
+
+        return Inertia::render('Dashboard/HR', [
+            'quickStats' => $quickStats,
+            'departmentCompliance' => $departmentCompliance,
+            'completionTrends' => $completionTrends,
+            'trainingByCategory' => $trainingByCategory,
+            'urgentActions' => $urgentActions,
+            'recentActivities' => $recentActivities,
+            'providerPerformance' => $providerPerformance
         ]);
     }
 
     /**
-     * Get system health check
+     * Employee Dashboard - Personal view
      */
-    public function healthCheck()
+    protected function employeeDashboard(Request $request, $user)
     {
-        $health = [
-            'status' => 'healthy',
-            'checks' => [
-                'database' => $this->checkDatabase(),
-                'training_statuses' => $this->checkTrainingStatuses(),
-                'data_integrity' => $this->checkDataIntegrity()
-            ],
-            'timestamp' => now()->toISOString()
-        ];
-
-        $overallStatus = collect($health['checks'])->every(fn($check) => $check['status'] === 'ok');
-        $health['status'] = $overallStatus ? 'healthy' : 'warning';
-
-        return response()->json($health);
-    }
-
-    private function checkDatabase()
-    {
-        try {
-            DB::connection()->getPdo();
-            return ['status' => 'ok', 'message' => 'Database connection successful'];
-        } catch (\Exception $e) {
-            return ['status' => 'error', 'message' => 'Database connection failed'];
+        $employee = Employee::find($user->id);
+        if (!$employee) {
+            return redirect()->route('hr.dashboard');
         }
+
+        return Inertia::render('Dashboard/Employee', $employee->getDashboardData());
     }
 
-    private function checkTrainingStatuses()
+    /**
+     * Determine dashboard type based on user
+     */
+    protected function determineDashboardType($user)
     {
-        $outdatedStatuses = TrainingRecord::where('updated_at', '<', Carbon::now()->subHours(24))
-            ->whereIn('status', ['active', 'expiring_soon'])
-            ->count();
+        // This would typically be based on roles/permissions
+        // For now, using simple logic based on position or department
+
+        if ($user->position_level === 'executive') {
+            return 'executive';
+        }
+
+        if ($user->position_level === 'manager' || Department::where('manager_id', $user->id)->exists()) {
+            return 'manager';
+        }
+
+        if ($user->department?->code === 'HR') {
+            return 'hr';
+        }
+
+        return 'employee';
+    }
+
+    /**
+     * Calculate overall compliance rate
+     */
+    protected function calculateOverallComplianceRate()
+    {
+        $totalEmployees = Employee::where('status', 'active')->count();
+        if ($totalEmployees === 0) return 100;
+
+        $compliantEmployees = Employee::where('status', 'active')
+            ->whereDoesntHave('trainingRecords', function ($query) {
+                $query->where('compliance_status', 'expired')
+                      ->whereHas('trainingType', function ($typeQuery) {
+                          $typeQuery->where('is_mandatory', true);
+                      });
+            })->count();
+
+        return round(($compliantEmployees / $totalEmployees) * 100, 1);
+    }
+
+    /**
+     * Get critical compliance gaps
+     */
+    protected function getCriticalComplianceGaps()
+    {
+        return Employee::where('status', 'active')
+            ->whereHas('trainingRecords', function ($query) {
+                $query->where('compliance_status', 'expired')
+                      ->whereHas('trainingType', function ($typeQuery) {
+                          $typeQuery->where('is_mandatory', true);
+                      });
+            })->count();
+    }
+
+    /**
+     * Get compliance trends over time
+     */
+    protected function getComplianceTrends($months = 12)
+    {
+        $trends = [];
+        for ($i = $months - 1; $i >= 0; $i--) {
+            $date = now()->subMonths($i);
+            $monthKey = $date->format('Y-m');
+
+            // This is a simplified calculation - in reality, you'd want to track historical compliance
+            $totalEmployees = Employee::where('status', 'active')
+                ->where('created_at', '<=', $date->endOfMonth())
+                ->count();
+
+            $completedTrainings = TrainingRecord::where('status', 'completed')
+                ->whereYear('completion_date', $date->year)
+                ->whereMonth('completion_date', $date->month)
+                ->count();
+
+            $trends[] = [
+                'month' => $monthKey,
+                'month_name' => $date->format('M Y'),
+                'total_employees' => $totalEmployees,
+                'completed_trainings' => $completedTrainings,
+                'compliance_rate' => $totalEmployees > 0 ? round(($completedTrainings / $totalEmployees) * 100, 1) : 0
+            ];
+        }
+
+        return $trends;
+    }
+
+    /**
+     * Get department performance comparison
+     */
+    protected function getDepartmentPerformanceComparison()
+    {
+        return Department::with('employees')->get()->map(function ($department) {
+            $employees = $department->employees->where('status', 'active');
+            $totalEmployees = $employees->count();
+
+            if ($totalEmployees === 0) {
+                return [
+                    'department' => $department->name,
+                    'compliance_rate' => 0,
+                    'total_employees' => 0,
+                    'avg_training_hours' => 0,
+                    'training_cost' => 0
+                ];
+            }
+
+            $compliantEmployees = $employees->filter(function ($employee) {
+                return $employee->compliance_status === 'compliant';
+            })->count();
+
+            $trainingHours = TrainingRecord::whereHas('employee', function ($query) use ($department) {
+                    $query->where('department_id', $department->id);
+                })
+                ->where('status', 'completed')
+                ->where('completion_date', '>=', now()->subYear())
+                ->sum('training_hours');
+
+            $trainingCost = TrainingRecord::whereHas('employee', function ($query) use ($department) {
+                    $query->where('department_id', $department->id);
+                })
+                ->where('status', 'completed')
+                ->where('completion_date', '>=', now()->subYear())
+                ->sum('cost');
+
+            return [
+                'department' => $department->name,
+                'compliance_rate' => round(($compliantEmployees / $totalEmployees) * 100, 1),
+                'total_employees' => $totalEmployees,
+                'avg_training_hours' => round($trainingHours / $totalEmployees, 1),
+                'training_cost' => $trainingCost
+            ];
+        });
+    }
+
+    /**
+     * Calculate training ROI
+     */
+    protected function calculateTrainingROI($days = 30)
+    {
+        $trainingCost = TrainingRecord::where('status', 'completed')
+            ->where('completion_date', '>=', now()->subDays($days))
+            ->sum('cost');
+
+        $avgScore = TrainingRecord::where('status', 'completed')
+            ->where('completion_date', '>=', now()->subDays($days))
+            ->avg('score');
+
+        // Simplified ROI calculation
+        $roi = $trainingCost > 0 ? round((($avgScore - 70) / 30) * 100, 1) : 0;
 
         return [
-            'status' => $outdatedStatuses > 0 ? 'warning' : 'ok',
-            'message' => $outdatedStatuses > 0
-                ? "{$outdatedStatuses} training statuses may need updating"
-                : 'All training statuses are current'
+            'total_investment' => $trainingCost,
+            'average_score' => round($avgScore ?: 0, 1),
+            'roi_percentage' => $roi,
+            'total_hours' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', now()->subDays($days))
+                ->sum('training_hours')
         ];
     }
 
-    private function checkDataIntegrity()
+    /**
+     * Get risk indicators
+     */
+    protected function getRiskIndicators()
     {
-        $orphanedRecords = TrainingRecord::whereNotExists(function($query) {
-            $query->select(DB::raw(1))
-                  ->from('employees')
-                  ->whereRaw('employees.id = training_records.employee_id');
-        })->count();
+        return [
+            'expired_mandatory' => Employee::where('status', 'active')
+                ->whereHas('trainingRecords', function ($query) {
+                    $query->where('compliance_status', 'expired')
+                          ->whereHas('trainingType', function ($typeQuery) {
+                              $typeQuery->where('is_mandatory', true);
+                          });
+                })->count(),
+            'high_risk_departments' => Department::whereHas('employees.trainingRecords', function ($query) {
+                    $query->where('compliance_status', 'expired')
+                          ->whereHas('trainingType', function ($typeQuery) {
+                              $typeQuery->where('is_mandatory', true);
+                          });
+                })->count(),
+            'provider_issues' => \App\Models\TrainingProvider::where('rating', '<', 3.0)->count(),
+            'budget_variance' => $this->calculateBudgetVariance()
+        ];
+    }
+
+    /**
+     * Get recent achievements
+     */
+    protected function getRecentAchievements($days = 30)
+    {
+        return [
+            'completed_trainings' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', now()->subDays($days))
+                ->count(),
+            'high_scores' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', now()->subDays($days))
+                ->where('score', '>=', 90)
+                ->count(),
+            'perfect_scores' => TrainingRecord::where('status', 'completed')
+                ->where('completion_date', '>=', now()->subDays($days))
+                ->where('score', 100)
+                ->count(),
+            'certificates_issued' => Certificate::where('issue_date', '>=', now()->subDays($days))
+                ->count()
+        ];
+    }
+
+    /**
+     * Get department budget utilization
+     */
+    protected function getDepartmentBudgetUtilization($departmentIds)
+    {
+        $spent = TrainingRecord::whereHas('employee', function ($query) use ($departmentIds) {
+                $query->whereIn('department_id', $departmentIds);
+            })
+            ->where('status', 'completed')
+            ->whereYear('completion_date', date('Y'))
+            ->sum('cost');
+
+        // This would typically come from a budget table
+        $budgetAllocated = 50000000; // 50M IDR example
 
         return [
-            'status' => $orphanedRecords > 0 ? 'warning' : 'ok',
-            'message' => $orphanedRecords > 0
-                ? "{$orphanedRecords} orphaned training records found"
-                : 'Data integrity is good'
+            'allocated' => $budgetAllocated,
+            'spent' => $spent,
+            'remaining' => $budgetAllocated - $spent,
+            'utilization_rate' => $budgetAllocated > 0 ? round(($spent / $budgetAllocated) * 100, 1) : 0
         ];
+    }
+
+    /**
+     * Get recent activities
+     */
+    protected function getRecentActivities()
+    {
+        return TrainingRecord::with(['employee.department', 'trainingType'])
+            ->whereIn('status', ['completed', 'registered'])
+            ->orderBy('updated_at', 'desc')
+            ->limit(10)
+            ->get()
+            ->map(function ($record) {
+                return [
+                    'type' => $record->status === 'completed' ? 'training_completed' : 'training_registered',
+                    'employee_name' => $record->employee->name,
+                    'department' => $record->employee->department->name,
+                    'training_name' => $record->trainingType->name,
+                    'date' => $record->updated_at,
+                    'score' => $record->score
+                ];
+            });
+    }
+
+    /**
+     * Get provider performance summary
+     */
+    protected function getProviderPerformance()
+    {
+        return \App\Models\TrainingProvider::withCount([
+                'trainingRecords as completed_trainings' => function ($query) {
+                    $query->where('status', 'completed')
+                          ->where('completion_date', '>=', now()->subMonths(6));
+                }
+            ])
+            ->with(['trainingRecords' => function ($query) {
+                $query->where('status', 'completed')
+                      ->where('completion_date', '>=', now()->subMonths(6));
+            }])
+            ->get()
+            ->map(function ($provider) {
+                $avgScore = $provider->trainingRecords->avg('score');
+                return [
+                    'name' => $provider->name,
+                    'rating' => $provider->rating,
+                    'completed_trainings' => $provider->completed_trainings,
+                    'average_score' => round($avgScore ?: 0, 1),
+                    'performance_trend' => $avgScore >= 85 ? 'excellent' : ($avgScore >= 75 ? 'good' : 'needs_improvement')
+                ];
+            });
+    }
+
+    /**
+     * Calculate budget variance
+     */
+    protected function calculateBudgetVariance()
+    {
+        // Simplified budget variance calculation
+        $currentMonthSpend = TrainingRecord::where('status', 'completed')
+            ->whereMonth('completion_date', date('m'))
+            ->whereYear('completion_date', date('Y'))
+            ->sum('cost');
+
+        $monthlyBudget = 5000000; // 5M IDR example monthly budget
+
+        return $monthlyBudget > 0 ? round((($currentMonthSpend - $monthlyBudget) / $monthlyBudget) * 100, 1) : 0;
     }
 }

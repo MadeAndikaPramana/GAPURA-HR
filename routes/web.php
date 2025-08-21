@@ -1,21 +1,31 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\EmployeeController;
-use App\Http\Controllers\TrainingRecordController;
 use App\Http\Controllers\TrainingTypeController;
-use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\TrainingCategoryController;
+use App\Http\Controllers\TrainingProviderController;
+use App\Http\Controllers\TrainingRecordController;
+use App\Http\Controllers\CertificateController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\ImportExportController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use Illuminate\Http\Request;
-use Maatwebsite\Excel\Facades\Excel;
 
 /*
 |--------------------------------------------------------------------------
-| Public Routes
+| Web Routes
 |--------------------------------------------------------------------------
+|
+| Here is where you can register web routes for your application. These
+| routes are loaded by the RouteServiceProvider within a group which
+| contains the "web" middleware group. Now create something great!
+|
 */
 
 Route::get('/', function () {
@@ -27,209 +37,197 @@ Route::get('/', function () {
     ]);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Authenticated Routes
-|--------------------------------------------------------------------------
-*/
+// Public certificate verification route (no auth required)
+Route::get('/verify/{verificationCode}', [CertificateController::class, 'verify'])
+    ->name('certificates.verify');
 
+// Protected routes
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // Dashboard Routes
+    // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/dashboard/export', [DashboardController::class, 'export'])->name('dashboard.export');
-    Route::get('/dashboard/api-data', [DashboardController::class, 'apiData'])->name('dashboard.api-data');
-    Route::post('/dashboard/refresh', [DashboardController::class, 'refresh'])->name('dashboard.refresh');
 
-    // Profile Routes
+    // Profile Management
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
-});
-
-/*
-|--------------------------------------------------------------------------
-| Admin Routes (HR Team)
-|--------------------------------------------------------------------------
-*/
-
-Route::middleware(['auth', 'role:admin'])->group(function () {
-
-    // Employee Management
-    Route::resource('employees', EmployeeController::class);
-    Route::post('employees/import', [EmployeeController::class, 'handleImport'])->name('employees.handleImport');
-    Route::get('employees/export', [EmployeeController::class, 'export'])->name('employees.export');
-    Route::post('employees/bulk-action', [EmployeeController::class, 'bulkAction'])->name('employees.bulkAction');
-
-    // Employee API Routes
-    Route::prefix('api/employees')->group(function () {
-        Route::get('search', [EmployeeController::class, 'search'])->name('api.employees.search');
-        Route::get('statistics', [EmployeeController::class, 'getStatistics'])->name('api.employees.statistics');
-        Route::get('{employee}/compliance', [EmployeeController::class, 'getComplianceSummary'])->name('api.employees.compliance');
-        Route::get('requiring-renewal', [EmployeeController::class, 'getEmployeesRequiringRenewal'])->name('api.employees.requiring-renewal');
-    });
-
-    // Training Records Management
-    Route::resource('training-records', TrainingRecordController::class);
-    Route::post('training-records/bulk-import', [TrainingRecordController::class, 'handleBulkImport'])->name('training-records.handleBulkImport');
-    Route::get('training-records/bulk-export', [TrainingRecordController::class, 'bulkExport'])->name('training-records.bulkExport');
-    Route::post('training-records/bulk-action', [TrainingRecordController::class, 'bulkAction'])->name('training-records.bulkAction');
-
-    // Training Records - Special Routes
-    Route::get('training-records-expiring', [TrainingRecordController::class, 'expiring'])->name('training-records.expiring');
-    Route::post('training-records/{trainingRecord}/renew', [TrainingRecordController::class, 'renew'])->name('training-records.renew');
-
-    // Training Records - API Routes for AJAX
-    Route::prefix('api/training-records')->group(function () {
-        Route::get('calculate-expiry', function(Request $request) {
-            $service = app(\App\Services\TrainingStatusService::class);
-            return response()->json([
-                'expiry_date' => $service->calculateExpiryDate(
-                    $request->issue_date,
-                    $request->training_type_id
-                )
-            ]);
-        })->name('api.training-records.calculate-expiry');
-
-        Route::get('generate-certificate', function(Request $request) {
-            $service = app(\App\Services\TrainingStatusService::class);
-            return response()->json([
-                'certificate_number' => $service->generateCertificateNumber(
-                    $request->training_type_id,
-                    $request->issuer
-                )
-            ]);
-        })->name('api.training-records.generate-certificate');
-    });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Super Admin Routes
-|--------------------------------------------------------------------------
-*/
-
-Route::middleware(['auth', 'role:super_admin'])->group(function () {
-
-    // Training Types Management
-    Route::resource('training-types', TrainingTypeController::class);
-    Route::post('training-types/{trainingType}/toggle-status', [TrainingTypeController::class, 'toggleStatus'])->name('training-types.toggle-status');
-    Route::get('training-types/export', [TrainingTypeController::class, 'export'])->name('training-types.export');
-
-    // Training Types API Routes
-    Route::prefix('api/training-types')->group(function () {
-        Route::get('statistics', [TrainingTypeController::class, 'getStatistics'])->name('api.training-types.statistics');
-    });
 
     // Department Management
     Route::resource('departments', DepartmentController::class);
+    Route::get('/departments/{department}/statistics', [DepartmentController::class, 'getStatistics'])
+        ->name('departments.statistics');
 
-    // System Management Routes
-    Route::prefix('system')->name('system.')->group(function () {
+    // Employee Management
+    Route::resource('employees', EmployeeController::class);
+    Route::get('/employees/{employee}/training-summary', [EmployeeController::class, 'getTrainingSummary'])
+        ->name('employees.training-summary');
+    Route::get('/employees/{employee}/dashboard-data', [EmployeeController::class, 'getDashboardData'])
+        ->name('employees.dashboard-data');
+    Route::post('/employees/{employee}/assign-training', [EmployeeController::class, 'assignTraining'])
+        ->name('employees.assign-training');
+    Route::get('/employees/compliance/missing-mandatory', [EmployeeController::class, 'missingMandatoryTraining'])
+        ->name('employees.missing-mandatory');
 
-        // Status Update Management
-        Route::post('update-training-status', function() {
-            $service = app(\App\Services\TrainingStatusService::class);
-            $updated = $service->updateAllStatuses();
+    // Training Category Management
+    Route::resource('training-categories', TrainingCategoryController::class);
+    Route::get('/training-categories/{category}/statistics', [TrainingCategoryController::class, 'getStatistics'])
+        ->name('training-categories.statistics');
+    Route::post('/training-categories/reorder', [TrainingCategoryController::class, 'reorder'])
+        ->name('training-categories.reorder');
 
-            return redirect()->back()->with('success', "Training statuses updated successfully. {$updated} records updated.");
-        })->name('update-training-status');
+    // Training Provider Management
+    Route::resource('training-providers', TrainingProviderController::class);
+    Route::get('/training-providers/{provider}/performance', [TrainingProviderController::class, 'getPerformanceMetrics'])
+        ->name('training-providers.performance');
+    Route::post('/training-providers/{provider}/update-rating', [TrainingProviderController::class, 'updateRating'])
+        ->name('training-providers.update-rating');
 
-        // System Statistics
-        Route::get('stats', function() {
-            $service = app(\App\Services\TrainingStatusService::class);
-            $stats = $service->getDashboardStats();
+    // Training Type Management
+    Route::resource('training-types', TrainingTypeController::class);
+    Route::get('/training-types/{trainingType}/statistics', [TrainingTypeController::class, 'getStatistics'])
+        ->name('training-types.statistics');
+    Route::post('/training-types/bulk-action', [TrainingTypeController::class, 'bulkAction'])
+        ->name('training-types.bulk-action');
 
-            return Inertia::render('System/Stats', [
-                'stats' => $stats,
-                'system_info' => [
-                    'php_version' => PHP_VERSION,
-                    'laravel_version' => Application::VERSION,
-                    'database' => config('database.default'),
-                    'cache' => config('cache.default'),
-                    'queue' => config('queue.default'),
-                ]
-            ]);
-        })->name('stats');
+    // Training Record Management
+    Route::resource('training-records', TrainingRecordController::class);
+    Route::post('/training-records/bulk-action', [TrainingRecordController::class, 'bulkAction'])
+        ->name('training-records.bulk-action');
+    Route::get('/training-records/{trainingRecord}/certificates', [TrainingRecordController::class, 'getCertificates'])
+        ->name('training-records.certificates');
+    Route::post('/training-records/{trainingRecord}/mark-completed', [TrainingRecordController::class, 'markCompleted'])
+        ->name('training-records.mark-completed');
+    Route::post('/training-records/{trainingRecord}/create-renewal', [TrainingRecordController::class, 'createRenewal'])
+        ->name('training-records.create-renewal');
 
-        // Import/Export Templates
-        Route::get('templates', function() {
-            return Inertia::render('System/Templates');
-        })->name('templates');
+    // Certificate Management
+    Route::resource('certificates', CertificateController::class);
+    Route::post('/certificates/bulk-action', [CertificateController::class, 'bulkAction'])
+        ->name('certificates.bulk-action');
+    Route::get('/certificates/{certificate}/download', [CertificateController::class, 'download'])
+        ->name('certificates.download');
+    Route::get('/certificates/analytics/dashboard', [CertificateController::class, 'analytics'])
+        ->name('certificates.analytics');
+    Route::post('/certificates/send-renewal-reminders', [CertificateController::class, 'sendRenewalReminders'])
+        ->name('certificates.send-renewal-reminders');
+    Route::get('/certificates/export/excel', [CertificateController::class, 'exportCertificates'])
+        ->name('certificates.export.excel');
 
-        Route::get('templates/employees', function() {
-            $headers = ['employee_id', 'name', 'department_id', 'position', 'status', 'background_check_date', 'background_check_notes'];
-            $filename = 'employee_import_template.xlsx';
+    // Notification Management
+    Route::resource('notifications', NotificationController::class)->only(['index', 'show', 'destroy']);
+    Route::post('/notifications/{notification}/mark-read', [NotificationController::class, 'markAsRead'])
+        ->name('notifications.mark-read');
+    Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead'])
+        ->name('notifications.mark-all-read');
+    Route::get('/notifications/unread/count', [NotificationController::class, 'getUnreadCount'])
+        ->name('notifications.unread-count');
 
-            return Excel::download(new class($headers) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
-                private $headers;
-                public function __construct($headers) { $this->headers = $headers; }
-                public function array(): array { return []; }
-                public function headings(): array { return $this->headers; }
-            }, $filename);
-        })->name('templates.employees');
+    // Import/Export Operations
+    Route::prefix('import-export')->name('import-export.')->group(function () {
+        Route::get('/', [ImportExportController::class, 'index'])->name('index');
 
-        Route::get('templates/training-records', function() {
-            $headers = ['employee_id', 'training_type', 'certificate_number', 'issuer', 'issue_date', 'expiry_date', 'notes'];
-            $filename = 'training_records_import_template.xlsx';
+        // Import routes
+        Route::get('/import/employees', [ImportExportController::class, 'showEmployeeImport'])->name('employees.import');
+        Route::post('/import/employees', [ImportExportController::class, 'importEmployees'])->name('employees.import.process');
+        Route::get('/import/training-records', [ImportExportController::class, 'showTrainingRecordsImport'])->name('training-records.import');
+        Route::post('/import/training-records', [ImportExportController::class, 'importTrainingRecords'])->name('training-records.import.process');
+        Route::get('/import/certificates', [ImportExportController::class, 'showCertificatesImport'])->name('certificates.import');
+        Route::post('/import/certificates', [ImportExportController::class, 'importCertificates'])->name('certificates.import.process');
 
-            return Excel::download(new class($headers) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
-                private $headers;
-                public function __construct($headers) { $this->headers = $headers; }
-                public function array(): array { return []; }
-                public function headings(): array { return $this->headers; }
-            }, $filename);
-        })->name('templates.training-records');
+        // Export routes
+        Route::get('/export/employees', [ImportExportController::class, 'exportEmployees'])->name('employees.export');
+        Route::get('/export/training-records', [ImportExportController::class, 'exportTrainingRecords'])->name('training-records.export');
+        Route::get('/export/certificates', [ImportExportController::class, 'exportCertificates'])->name('certificates.export');
+        Route::get('/export/compliance-report', [ImportExportController::class, 'exportComplianceReport'])->name('compliance-report.export');
 
-        Route::get('templates/training-types', function() {
-            $headers = ['name', 'code', 'validity_months', 'category', 'description', 'is_active'];
-            $filename = 'training_types_import_template.xlsx';
+        // Template downloads
+        Route::get('/templates/employees', [ImportExportController::class, 'downloadEmployeeTemplate'])->name('templates.employees');
+        Route::get('/templates/training-records', [ImportExportController::class, 'downloadTrainingRecordsTemplate'])->name('templates.training-records');
+        Route::get('/templates/certificates', [ImportExportController::class, 'downloadCertificatesTemplate'])->name('templates.certificates');
+    });
 
-            return Excel::download(new class($headers) implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
-                private $headers;
-                public function __construct($headers) { $this->headers = $headers; }
-                public function array(): array { return []; }
-                public function headings(): array { return $this->headers; }
-            }, $filename);
-        })->name('templates.training-types');
+    // Reporting
+    Route::prefix('reports')->name('reports.')->group(function () {
+        Route::get('/', [ReportController::class, 'index'])->name('index');
+        Route::get('/compliance', [ReportController::class, 'compliance'])->name('compliance');
+        Route::get('/training-summary', [ReportController::class, 'trainingSummary'])->name('training-summary');
+        Route::get('/employee-progress', [ReportController::class, 'employeeProgress'])->name('employee-progress');
+        Route::get('/cost-analysis', [ReportController::class, 'costAnalysis'])->name('cost-analysis');
+        Route::get('/provider-performance', [ReportController::class, 'providerPerformance'])->name('provider-performance');
+        Route::get('/expiry-forecast', [ReportController::class, 'expiryForecast'])->name('expiry-forecast');
+        Route::get('/department-breakdown', [ReportController::class, 'departmentBreakdown'])->name('department-breakdown');
+
+        // Custom report builder
+        Route::get('/builder', [ReportController::class, 'builder'])->name('builder');
+        Route::post('/builder/generate', [ReportController::class, 'generateCustomReport'])->name('builder.generate');
+
+        // Scheduled reports
+        Route::get('/scheduled', [ReportController::class, 'scheduled'])->name('scheduled');
+        Route::post('/scheduled', [ReportController::class, 'createScheduledReport'])->name('scheduled.create');
+        Route::delete('/scheduled/{report}', [ReportController::class, 'deleteScheduledReport'])->name('scheduled.delete');
+    });
+
+    // Analytics Dashboard
+    Route::prefix('analytics')->name('analytics.')->group(function () {
+        Route::get('/', [AnalyticsController::class, 'index'])->name('index');
+        Route::get('/dashboard-data', [AnalyticsController::class, 'getDashboardData'])->name('dashboard-data');
+        Route::get('/compliance-trends', [AnalyticsController::class, 'complianceTrends'])->name('compliance-trends');
+        Route::get('/training-effectiveness', [AnalyticsController::class, 'trainingEffectiveness'])->name('training-effectiveness');
+        Route::get('/cost-analysis', [AnalyticsController::class, 'costAnalysis'])->name('cost-analysis');
+        Route::get('/predictive-analytics', [AnalyticsController::class, 'predictiveAnalytics'])->name('predictive-analytics');
+        Route::get('/department-comparison', [AnalyticsController::class, 'departmentComparison'])->name('department-comparison');
+        Route::get('/provider-performance', [AnalyticsController::class, 'providerPerformance'])->name('provider-performance');
+    });
+
+    // Quick Actions (for common tasks)
+    Route::prefix('quick-actions')->name('quick-actions.')->group(function () {
+        Route::get('/expiring-certificates', [CertificateController::class, 'expiringCertificates'])->name('expiring-certificates');
+        Route::get('/compliance-issues', [EmployeeController::class, 'complianceIssues'])->name('compliance-issues');
+        Route::get('/pending-training', [TrainingRecordController::class, 'pendingTraining'])->name('pending-training');
+        Route::get('/overdue-renewals', [TrainingRecordController::class, 'overdueRenewals'])->name('overdue-renewals');
+    });
+
+    // System Settings (Admin only)
+    Route::middleware(['can:manage-system'])->prefix('settings')->name('settings.')->group(function () {
+        Route::get('/', [App\Http\Controllers\SettingsController::class, 'index'])->name('index');
+        Route::get('/notification-templates', [App\Http\Controllers\SettingsController::class, 'notificationTemplates'])->name('notification-templates');
+        Route::post('/notification-templates', [App\Http\Controllers\SettingsController::class, 'updateNotificationTemplate'])->name('notification-templates.update');
+        Route::get('/system-maintenance', [App\Http\Controllers\SettingsController::class, 'systemMaintenance'])->name('system-maintenance');
+        Route::post('/system-maintenance/run', [App\Http\Controllers\SettingsController::class, 'runMaintenance'])->name('system-maintenance.run');
+        Route::get('/audit-logs', [App\Http\Controllers\SettingsController::class, 'auditLogs'])->name('audit-logs');
+        Route::get('/backup-restore', [App\Http\Controllers\SettingsController::class, 'backupRestore'])->name('backup-restore');
     });
 });
 
-/*
-|--------------------------------------------------------------------------
-| API Routes for External Integration
-|--------------------------------------------------------------------------
-*/
+// API Routes for mobile app or external integrations
+Route::prefix('api/v1')->middleware(['auth:sanctum'])->name('api.')->group(function () {
+    // Employee API
+    Route::get('/employees/{employee}/certificates', [App\Http\Controllers\Api\EmployeeApiController::class, 'getCertificates']);
+    Route::get('/employees/{employee}/training-schedule', [App\Http\Controllers\Api\EmployeeApiController::class, 'getTrainingSchedule']);
+    Route::get('/employees/{employee}/compliance-status', [App\Http\Controllers\Api\EmployeeApiController::class, 'getComplianceStatus']);
 
-Route::middleware(['auth:sanctum'])->prefix('api/v1')->name('api.v1.')->group(function () {
+    // Training API
+    Route::get('/training-types', [App\Http\Controllers\Api\TrainingApiController::class, 'getTrainingTypes']);
+    Route::get('/training-schedule', [App\Http\Controllers\Api\TrainingApiController::class, 'getTrainingSchedule']);
 
-    // Public API for external systems
-    Route::get('employees', [EmployeeController::class, 'index']);
-    Route::get('employees/{employee}', [EmployeeController::class, 'show']);
-    Route::get('training-records', [TrainingRecordController::class, 'index']);
-    Route::get('training-types', [TrainingTypeController::class, 'index']);
+    // Certificate Verification API
+    Route::get('/certificates/{verificationCode}/verify', [App\Http\Controllers\Api\CertificateApiController::class, 'verify']);
+    Route::get('/certificates/{certificate}/qr-data', [App\Http\Controllers\Api\CertificateApiController::class, 'getQrData']);
 
-    // Training compliance endpoints
-    Route::get('compliance/department/{department}', function($department) {
-        $service = app(\App\Services\TrainingStatusService::class);
-        return response()->json($service->getComplianceByDepartment());
-    });
+    // Notification API
+    Route::get('/notifications', [App\Http\Controllers\Api\NotificationApiController::class, 'index']);
+    Route::post('/notifications/{notification}/mark-read', [App\Http\Controllers\Api\NotificationApiController::class, 'markAsRead']);
 
-    Route::get('compliance/training-type/{trainingType}', function($trainingType) {
-        $service = app(\App\Services\TrainingStatusService::class);
-        return response()->json($service->getComplianceByTrainingType());
-    });
+    // Analytics API
+    Route::get('/analytics/dashboard', [App\Http\Controllers\Api\AnalyticsApiController::class, 'getDashboard']);
+    Route::get('/analytics/compliance', [App\Http\Controllers\Api\AnalyticsApiController::class, 'getCompliance']);
 });
 
-/*
-|--------------------------------------------------------------------------
-| Fallback Routes
-|--------------------------------------------------------------------------
-*/
-
-// 404 handler for SPA
-Route::fallback(function () {
-    return Inertia::render('Errors/404');
+// Webhook routes for external integrations
+Route::prefix('webhooks')->name('webhooks.')->group(function () {
+    Route::post('/training-completion', [App\Http\Controllers\WebhookController::class, 'trainingCompletion'])->name('training-completion');
+    Route::post('/certificate-issued', [App\Http\Controllers\WebhookController::class, 'certificateIssued'])->name('certificate-issued');
+    Route::post('/employee-update', [App\Http\Controllers\WebhookController::class, 'employeeUpdate'])->name('employee-update');
 });
 
 require __DIR__.'/auth.php';
