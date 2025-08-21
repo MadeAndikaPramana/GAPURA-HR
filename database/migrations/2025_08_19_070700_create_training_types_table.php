@@ -1,4 +1,5 @@
 <?php
+// database/migrations/2025_08_19_070600_create_training_types_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -13,13 +14,15 @@ return new class extends Migration
     {
         Schema::create('training_types', function (Blueprint $table) {
             $table->id();
-            $table->string('name');
-            $table->string('code', 50)->unique()->nullable();
-            $table->integer('validity_months');
-            $table->enum('category', ['safety', 'operational', 'security', 'technical']);
+            $table->string('name')->unique();
+            $table->string('code', 20)->unique();
+            $table->string('category', 100);
+            $table->integer('validity_months')->default(12);
             $table->text('description')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
+
+            $table->index(['category', 'is_active']);
         });
     }
 

@@ -1,4 +1,5 @@
 <?php
+// database/migrations/2025_08_19_070500_create_departments_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -13,8 +14,8 @@ return new class extends Migration
     {
         Schema::create('departments', function (Blueprint $table) {
             $table->id();
-            $table->string('name', 100);
-            $table->string('code', 20)->unique();
+            $table->string('name');
+            $table->string('code', 10)->unique();
             $table->text('description')->nullable();
             $table->timestamps();
         });
