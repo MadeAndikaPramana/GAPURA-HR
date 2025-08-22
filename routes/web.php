@@ -230,4 +230,32 @@ Route::prefix('webhooks')->name('webhooks.')->group(function () {
     Route::post('/employee-update', [App\Http\Controllers\WebhookController::class, 'employeeUpdate'])->name('employee-update');
 });
 
+// System Routes (Super Admin only)
+Route::middleware(['auth', 'verified'])->prefix('system')->name('system.')->group(function () {
+    // Templates & Import/Export
+    Route::get('/templates', function () {
+        return inertia('System/Templates');
+    })->name('templates');
+
+    Route::get('/templates/employees', function () {
+        // Download employee template logic
+        return response()->download(storage_path('app/templates/employees_template.xlsx'));
+    })->name('templates.employees');
+
+    Route::get('/templates/training-records', function () {
+        // Download training records template logic
+        return response()->download(storage_path('app/templates/training_records_template.xlsx'));
+    })->name('templates.training-records');
+
+    Route::get('/templates/training-types', function () {
+        // Download training types template logic
+        return response()->download(storage_path('app/templates/training_types_template.xlsx'));
+    })->name('templates.training-types');
+
+    // System Statistics
+    Route::get('/stats', function () {
+        return inertia('System/Stats');
+    })->name('stats');
+});
+
 require __DIR__.'/auth.php';

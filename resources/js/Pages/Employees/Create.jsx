@@ -9,19 +9,22 @@ import {
     BuildingOfficeIcon,
     IdentificationIcon,
     CalendarDaysIcon,
-    DocumentTextIcon
+    BriefcaseIcon,
+    DocumentTextIcon,
+    InformationCircleIcon
 } from '@heroicons/react/24/outline';
 
 export default function Create({ auth, departments }) {
     const { data, setData, post, processing, errors } = useForm({
         employee_id: '',
         name: '',
+        nip: '',
         department_id: '',
         position: '',
         status: 'active',
         hire_date: '',
         background_check_date: '',
-        background_check_status: '',
+        background_check_status: 'cleared',
         background_check_notes: '',
     });
 
@@ -31,10 +34,44 @@ export default function Create({ auth, departments }) {
     };
 
     const generateEmployeeId = () => {
-        const timestamp = Date.now().toString().slice(-6);
-        const random = Math.floor(Math.random() * 100).toString().padStart(2, '0');
-        const generated = `GAP${timestamp}${random}`;
+        // Generate GAP ID format: GAP + 4 digit number
+        const currentCount = Math.floor(Math.random() * 9999) + 1;
+        const generated = `GAP${currentCount.toString().padStart(4, '0')}`;
         setData('employee_id', generated);
+    };
+
+    const generateNIP = () => {
+        // Generate NIP format: 8 digit number (sesuai format MPGA)
+        const year = new Date().getFullYear().toString().slice(-2);
+        const month = (new Date().getMonth() + 1).toString().padStart(2, '0');
+        const random = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
+        const generated = `${year}${month}${random}`;
+        setData('nip', generated);
+    };
+
+    // MPGA Department mapping
+    const mpgaDepartments = [
+        { code: 'DEDICATED', name: 'Dedicated Services', positions: ['AE Operator', 'Controller', 'Supervisor'] },
+        { code: 'LOADING', name: 'Loading Operations', positions: ['Loading Agent', 'Loading Supervisor', 'Equipment Operator'] },
+        { code: 'RAMP', name: 'Ramp Operations', positions: ['Ramp Agent', 'Senior Ramp Agent', 'Ramp Supervisor'] },
+        { code: 'PORTER', name: 'Porter Services', positions: ['Porter', 'Senior Porter', 'Porter Supervisor'] },
+        { code: 'GSE', name: 'GSE Operations', positions: ['GSE Operator', 'GSE Mechanic', 'GSE Supervisor'] },
+        { code: 'AVSEC', name: 'Aviation Security', positions: ['Security Officer', 'Security Supervisor', 'AVSEC Inspector'] },
+        { code: 'CARGO', name: 'Cargo Operations', positions: ['Cargo Handler', 'Cargo Supervisor', 'Cargo Officer'] },
+        { code: 'ARRIVAL', name: 'Arrival Services', positions: ['Arrival Agent', 'Arrival Supervisor', 'Customer Service'] },
+        { code: 'LOCO', name: 'Locomotive Operations', positions: ['Equipment Operator', 'Maintenance Staff', 'Supervisor'] },
+        { code: 'ULD', name: 'ULD Operations', positions: ['ULD Handler', 'ULD Inspector', 'ULD Supervisor'] },
+        { code: 'LNF', name: 'Lost & Found', positions: ['Lost & Found Officer', 'Customer Service', 'Supervisor'] },
+        { code: 'FLOP', name: 'Flight Operations', positions: ['Flight Operations Officer', 'FOO Licensed', 'Operations Supervisor'] }
+    ];
+
+    const selectedDepartment = mpgaDepartments.find(dept =>
+        departments.find(d => d.id == data.department_id)?.code === dept.code
+    );
+
+    const handleDepartmentChange = (departmentId) => {
+        setData('department_id', departmentId);
+        setData('position', ''); // Reset position when department changes
     };
 
     return (
@@ -55,7 +92,7 @@ export default function Create({ auth, departments }) {
                                 Tambah Karyawan Baru
                             </h2>
                             <p className="text-sm text-gray-600 mt-1">
-                                Tambahkan data karyawan baru ke sistem training GAPURA
+                                Tambahkan data karyawan baru ke sistem training GAPURA sesuai format MPGA
                             </p>
                         </div>
                     </div>
@@ -66,8 +103,22 @@ export default function Create({ auth, departments }) {
 
             <div className="py-12">
                 <div className="max-w-4xl mx-auto sm:px-6 lg:px-8">
+                    {/* Info Banner */}
+                    <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex items-start">
+                            <InformationCircleIcon className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
+                            <div>
+                                <h3 className="text-sm font-medium text-blue-900">Format Data MPGA</h3>
+                                <p className="text-sm text-blue-700 mt-1">
+                                    Pastikan data yang diinput sesuai dengan format Excel MPGA: NAMA, NIPP (8 digit), Dept/Unit, dan Jabatan.
+                                    Employee ID (GAP) akan digenerate otomatis untuk sistem internal.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
                     <form onSubmit={submit} className="space-y-6">
-                        {/* Basic Information */}
+                        {/* Informasi Dasar */}
                         <div className="bg-white shadow rounded-lg">
                             <div className="px-6 py-4 border-b border-gray-200">
                                 <h3 className="text-lg font-medium text-gray-900 flex items-center">
@@ -75,15 +126,38 @@ export default function Create({ auth, departments }) {
                                     Informasi Dasar
                                 </h3>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Data identitas dan informasi dasar karyawan
+                                    Data identitas karyawan sesuai format MPGA
                                 </p>
                             </div>
-                            <div className="px-6 py-4 space-y-6">
+                            <div className="px-6 py-6 space-y-6">
+                                {/* Nama Lengkap */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Nama Lengkap *
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={data.name}
+                                        onChange={(e) => setData('name', e.target.value.toUpperCase())}
+                                        className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                                            errors.name ? 'border-red-300' : 'border-gray-300'
+                                        }`}
+                                        placeholder="Contoh: PUTU EKA RESMAWAN"
+                                        required
+                                    />
+                                    {errors.name && (
+                                        <p className="mt-2 text-sm text-red-600">{errors.name}</p>
+                                    )}
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Masukkan nama lengkap dengan huruf kapital sesuai format MPGA
+                                    </p>
+                                </div>
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Employee ID */}
+                                    {/* Employee ID (GAP) */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Employee ID / NIP *
+                                            Employee ID (GAP) *
                                         </label>
                                         <div className="flex space-x-2">
                                             <input
@@ -93,13 +167,13 @@ export default function Create({ auth, departments }) {
                                                 className={`flex-1 border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
                                                     errors.employee_id ? 'border-red-300' : 'border-gray-300'
                                                 }`}
-                                                placeholder="GAP001 or auto-generate"
+                                                placeholder="GAP0001"
                                                 required
                                             />
                                             <button
                                                 type="button"
                                                 onClick={generateEmployeeId}
-                                                className="px-3 py-2 text-sm bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                                className="px-3 py-2 text-sm bg-green-100 border border-green-300 rounded-md hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-green-500 text-green-700"
                                             >
                                                 Generate
                                             </button>
@@ -108,61 +182,105 @@ export default function Create({ auth, departments }) {
                                             <p className="mt-2 text-sm text-red-600">{errors.employee_id}</p>
                                         )}
                                         <p className="mt-1 text-xs text-gray-500">
-                                            Unique identifier untuk karyawan (contoh: GAP001, EMP123)
+                                            ID unik untuk sistem internal GAPURA
                                         </p>
                                     </div>
 
-                                    {/* Full Name */}
+                                    {/* NIP/NIPP */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Nama Lengkap *
+                                            NIP / NIPP *
                                         </label>
-                                        <input
-                                            type="text"
-                                            value={data.name}
-                                            onChange={(e) => setData('name', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.name ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            placeholder="Nama lengkap karyawan"
-                                            required
-                                        />
-                                        {errors.name && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.name}</p>
+                                        <div className="flex space-x-2">
+                                            <input
+                                                type="text"
+                                                value={data.nip}
+                                                onChange={(e) => setData('nip', e.target.value)}
+                                                className={`flex-1 border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                                                    errors.nip ? 'border-red-300' : 'border-gray-300'
+                                                }`}
+                                                placeholder="21608001"
+                                                maxLength="8"
+                                                required
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={generateNIP}
+                                                className="px-3 py-2 text-sm bg-blue-100 border border-blue-300 rounded-md hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-blue-700"
+                                            >
+                                                Generate
+                                            </button>
+                                        </div>
+                                        {errors.nip && (
+                                            <p className="mt-2 text-sm text-red-600">{errors.nip}</p>
                                         )}
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Nomor Induk Pegawai (8 digit) sesuai format MPGA
+                                        </p>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Department */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Department
-                                        </label>
+                        {/* Informasi Departemen & Jabatan */}
+                        <div className="bg-white shadow rounded-lg">
+                            <div className="px-6 py-4 border-b border-gray-200">
+                                <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                                    <BuildingOfficeIcon className="w-5 h-5 mr-2" />
+                                    Departemen & Jabatan
+                                </h3>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    Unit kerja dan posisi karyawan sesuai struktur MPGA
+                                </p>
+                            </div>
+                            <div className="px-6 py-6 space-y-6">
+                                {/* Department */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Departemen / Unit *
+                                    </label>
+                                    <select
+                                        value={data.department_id}
+                                        onChange={(e) => handleDepartmentChange(e.target.value)}
+                                        className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                                            errors.department_id ? 'border-red-300' : 'border-gray-300'
+                                        }`}
+                                        required
+                                    >
+                                        <option value="">Pilih Departemen</option>
+                                        {departments.map((department) => (
+                                            <option key={department.id} value={department.id}>
+                                                {department.name} ({department.code})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {errors.department_id && (
+                                        <p className="mt-2 text-sm text-red-600">{errors.department_id}</p>
+                                    )}
+                                </div>
+
+                                {/* Position */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Jabatan / Position *
+                                    </label>
+                                    {selectedDepartment ? (
                                         <select
-                                            value={data.department_id}
-                                            onChange={(e) => setData('department_id', e.target.value)}
+                                            value={data.position}
+                                            onChange={(e) => setData('position', e.target.value)}
                                             className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.department_id ? 'border-red-300' : 'border-gray-300'
+                                                errors.position ? 'border-red-300' : 'border-gray-300'
                                             }`}
+                                            required
                                         >
-                                            <option value="">Pilih Department</option>
-                                            {departments.map((dept) => (
-                                                <option key={dept.id} value={dept.id}>
-                                                    {dept.name} ({dept.code})
+                                            <option value="">Pilih Jabatan</option>
+                                            {selectedDepartment.positions.map((position) => (
+                                                <option key={position} value={position}>
+                                                    {position}
                                                 </option>
                                             ))}
                                         </select>
-                                        {errors.department_id && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.department_id}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Position */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Jabatan / Position
-                                        </label>
+                                    ) : (
                                         <input
                                             type="text"
                                             value={data.position}
@@ -170,34 +288,47 @@ export default function Create({ auth, departments }) {
                                             className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
                                                 errors.position ? 'border-red-300' : 'border-gray-300'
                                             }`}
-                                            placeholder="Manager, Officer, Staff, etc."
+                                            placeholder="Contoh: Porter, AE Operator, Controller"
+                                            required
                                         />
-                                        {errors.position && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.position}</p>
-                                        )}
-                                    </div>
+                                    )}
+                                    {errors.position && (
+                                        <p className="mt-2 text-sm text-red-600">{errors.position}</p>
+                                    )}
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Pilih departemen terlebih dahulu untuk melihat jabatan yang tersedia
+                                    </p>
                                 </div>
+                            </div>
+                        </div>
 
+                        {/* Informasi Status & Tanggal */}
+                        <div className="bg-white shadow rounded-lg">
+                            <div className="px-6 py-4 border-b border-gray-200">
+                                <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                                    <CalendarDaysIcon className="w-5 h-5 mr-2" />
+                                    Status & Tanggal
+                                </h3>
+                                <p className="text-sm text-gray-600 mt-1">
+                                    Status kepegawaian dan informasi tanggal penting
+                                </p>
+                            </div>
+                            <div className="px-6 py-6 space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* Status */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Status *
+                                            Status Karyawan *
                                         </label>
                                         <select
                                             value={data.status}
                                             onChange={(e) => setData('status', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.status ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                                             required
                                         >
-                                            <option value="active">Active</option>
-                                            <option value="inactive">Inactive</option>
+                                            <option value="active">Aktif</option>
+                                            <option value="inactive">Tidak Aktif</option>
                                         </select>
-                                        {errors.status && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.status}</p>
-                                        )}
                                     </div>
 
                                     {/* Hire Date */}
@@ -209,32 +340,27 @@ export default function Create({ auth, departments }) {
                                             type="date"
                                             value={data.hire_date}
                                             onChange={(e) => setData('hire_date', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.hire_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                                         />
-                                        {errors.hire_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.hire_date}</p>
-                                        )}
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Background Check Information */}
+                        {/* Background Check (Optional) */}
                         <div className="bg-white shadow rounded-lg">
                             <div className="px-6 py-4 border-b border-gray-200">
                                 <h3 className="text-lg font-medium text-gray-900 flex items-center">
                                     <DocumentTextIcon className="w-5 h-5 mr-2" />
                                     Background Check
+                                    <span className="ml-2 text-xs text-gray-500">(Opsional)</span>
                                 </h3>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Informasi pemeriksaan latar belakang karyawan (opsional)
+                                    Informasi pemeriksaan latar belakang karyawan
                                 </p>
                             </div>
-                            <div className="px-6 py-4 space-y-6">
+                            <div className="px-6 py-6 space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Background Check Date */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Tanggal Background Check
@@ -243,16 +369,10 @@ export default function Create({ auth, departments }) {
                                             type="date"
                                             value={data.background_check_date}
                                             onChange={(e) => setData('background_check_date', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.background_check_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                                         />
-                                        {errors.background_check_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.background_check_date}</p>
-                                        )}
                                     </div>
 
-                                    {/* Background Check Status */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-2">
                                             Status Background Check
@@ -260,24 +380,16 @@ export default function Create({ auth, departments }) {
                                         <select
                                             value={data.background_check_status}
                                             onChange={(e) => setData('background_check_status', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.background_check_status ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                                         >
-                                            <option value="">Pilih Status</option>
-                                            <option value="pending">Pending</option>
-                                            <option value="in_progress">In Progress</option>
-                                            <option value="completed">Completed</option>
+                                            <option value="">Belum dilakukan</option>
                                             <option value="cleared">Cleared</option>
-                                            <option value="failed">Failed</option>
+                                            <option value="pending">Pending</option>
+                                            <option value="rejected">Rejected</option>
                                         </select>
-                                        {errors.background_check_status && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.background_check_status}</p>
-                                        )}
                                     </div>
                                 </div>
 
-                                {/* Background Check Notes */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                         Catatan Background Check
@@ -285,15 +397,10 @@ export default function Create({ auth, departments }) {
                                     <textarea
                                         value={data.background_check_notes}
                                         onChange={(e) => setData('background_check_notes', e.target.value)}
-                                        rows={4}
-                                        className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                            errors.background_check_notes ? 'border-red-300' : 'border-gray-300'
-                                        }`}
+                                        rows={3}
+                                        className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                                         placeholder="Catatan tambahan mengenai background check..."
                                     />
-                                    {errors.background_check_notes && (
-                                        <p className="mt-2 text-sm text-red-600">{errors.background_check_notes}</p>
-                                    )}
                                 </div>
                             </div>
                         </div>
@@ -303,14 +410,14 @@ export default function Create({ auth, departments }) {
                             <div className="px-6 py-4">
                                 <div className="flex items-center justify-between">
                                     <div className="text-sm text-gray-600">
-                                        * Field yang wajib diisi
+                                        * Field wajib diisi
                                     </div>
                                     <div className="flex space-x-3">
                                         <Link
                                             href={route('employees.index')}
                                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                                         >
-                                            Cancel
+                                            Batal
                                         </Link>
                                         <button
                                             type="submit"
@@ -319,16 +426,16 @@ export default function Create({ auth, departments }) {
                                         >
                                             {processing ? (
                                                 <>
-                                                    <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                                     </svg>
-                                                    Creating...
+                                                    Menyimpan...
                                                 </>
                                             ) : (
                                                 <>
                                                     <UserPlusIcon className="w-4 h-4 mr-2" />
-                                                    Tambah Karyawan
+                                                    Simpan Karyawan
                                                 </>
                                             )}
                                         </button>

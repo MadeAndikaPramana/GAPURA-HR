@@ -9,8 +9,8 @@ import {
     ClockIcon,
     DocumentTextIcon,
     ChartBarIcon,
-    TrendingUpIcon,
-    TrendingDownIcon,
+    ArrowTrendingUpIcon,   // ✅ TAMBAH INI
+    ArrowTrendingDownIcon, // ✅ TAMBAH INI
     CalendarIcon,
     BellIcon,
     CurrencyDollarIcon,
@@ -56,9 +56,9 @@ export default function HRDashboard({
     // Get trend icon
     const getTrendIcon = (current, previous) => {
         if (current > previous) {
-            return <TrendingUpIcon className="h-4 w-4 text-green-500" />;
+            return <ArrowTrendingUpIconTrendingUpIcon className="h-4 w-4 text-green-500" />;
         } else if (current < previous) {
-            return <TrendingDownIcon className="h-4 w-4 text-red-500" />;
+            return <ArrowTrendingDownIcon className="h-4 w-4 text-red-500" />;
         }
         return <div className="h-4 w-4" />;
     };

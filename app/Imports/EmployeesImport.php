@@ -1,5 +1,4 @@
 <?php
-// app/Imports/EnhancedEmployeeImport.php
 
 namespace App\Imports;
 
@@ -9,22 +8,17 @@ use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithValidation;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
-use Maatwebsite\Excel\Concerns\WithBatchInserts;
-use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Concerns\SkipsOnError;
 use Maatwebsite\Excel\Concerns\SkipsOnFailure;
 use Maatwebsite\Excel\Concerns\Importable;
-use Maatwebsite\Excel\Validators\Failure;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
 
-class EnhancedEmployeeImport implements
+class EmployeesImport implements  // ✅ FIXED: Nama class yang benar
     ToModel,
     WithHeadingRow,
     WithValidation,
     WithChunkReading,
-    WithBatchInserts,
     SkipsOnError,
     SkipsOnFailure
 {
@@ -51,9 +45,6 @@ class EnhancedEmployeeImport implements
         $this->startTime = microtime(true);
     }
 
-    /**
-     * Enhanced model creation with business logic
-     */
     public function model(array $row)
     {
         $this->importResults['total_rows']++;
@@ -109,204 +100,117 @@ class EnhancedEmployeeImport implements
         }
     }
 
-    /**
-     * Enhanced validation rules
-     */
-    public function rules(): array
+    private function cleanRowData(array $row): array
     {
         return [
-            'employee_id' => [
-                'required',
-                'string',
-                'max:20',
-                // Skip unique validation if updating existing
-                $this->updateExisting ? '' : 'unique:employees,employee_id'
-            ],
-            'name' => 'required|string|max:255',
-            'department' => 'nullable|string|max:10',
-            'position' => 'nullable|string|max:100',
-            'status' => 'nullable|in:active,inactive',
-            'hire_date' => 'nullable|date',
-            'background_check_date' => 'nullable|date',
-            'background_check_notes' => 'nullable|string|max:500'
+            'employee_id' => trim(strtoupper($row['employee_id'] ?? $row['nip'] ?? '')),
+            'name' => trim($row['name'] ?? $row['nama'] ?? ''),
+            'email' => trim(strtolower($row['email'] ?? '')),
+            'phone' => trim($row['phone'] ?? $row['telepon'] ?? ''),
+            'department' => trim(strtoupper($row['department'] ?? $row['dept'] ?? $row['departemen'] ?? '')),
+            'position' => trim($row['position'] ?? $row['jabatan'] ?? ''),
+            'hire_date' => $row['hire_date'] ?? $row['tanggal_masuk'] ?? null,
+            'status' => trim(strtolower($row['status'] ?? 'active'))
         ];
     }
 
-    /**
-     * Custom validation messages
-     */
-    public function customValidationMessages()
+    private function resolveDepartment($departmentCode)
     {
-        return [
-            'employee_id.required' => 'Employee ID is required',
-            'employee_id.unique' => 'Employee ID already exists',
-            'name.required' => 'Employee name is required',
-            'department.exists' => 'Department code not found',
-            'status.in' => 'Status must be active or inactive'
-        ];
-    }
-
-    /**
-     * Handle validation failures
-     */
-    public function onFailure(Failure ...$failures)
-    {
-        foreach ($failures as $failure) {
-            $this->importResults['errors']++;
-            $this->importResults['error_details'][] = [
-                'row' => $failure->row(),
-                'attribute' => $failure->attribute(),
-                'errors' => $failure->errors(),
-                'values' => $failure->values()
-            ];
+        if (empty($departmentCode)) {
+            return null;
         }
+
+        return $this->departments->get(strtoupper($departmentCode));
     }
 
-    /**
-     * Handle processing errors
-     */
-    public function onError(\Throwable $e)
+    private function createEmployee(array $cleanRow, $department): Employee
     {
-        $this->importResults['errors']++;
-        Log::error('Import processing error', [
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+        return Employee::create([
+            'employee_id' => $cleanRow['employee_id'],
+            'name' => $cleanRow['name'],
+            'email' => $cleanRow['email'] ?: null,
+            'phone' => $cleanRow['phone'] ?: null,
+            'department_id' => $department?->id,
+            'position' => $cleanRow['position'] ?: 'Staff',
+            'hire_date' => $cleanRow['hire_date'] ? Carbon::parse($cleanRow['hire_date']) : now(),
+            'status' => in_array($cleanRow['status'], ['active', 'inactive']) ? $cleanRow['status'] : 'active',
+            'background_check_date' => now(),
+            'background_check_status' => 'completed',
+            'background_check_notes' => 'Imported via Excel'
         ]);
     }
 
-    /**
-     * Chunk size for large files
-     */
-    public function chunkSize(): int
+    private function updateEmployee($employee, array $cleanRow, $department): void
     {
-        return 100;
+        $employee->update([
+            'name' => $cleanRow['name'],
+            'email' => $cleanRow['email'] ?: $employee->email,
+            'phone' => $cleanRow['phone'] ?: $employee->phone,
+            'department_id' => $department?->id ?: $employee->department_id,
+            'position' => $cleanRow['position'] ?: $employee->position,
+            'status' => in_array($cleanRow['status'], ['active', 'inactive']) ? $cleanRow['status'] : $employee->status,
+        ]);
     }
 
-    /**
-     * Batch insert size
-     */
-    public function batchSize(): int
+    public function rules(): array
     {
-        return 50;
+        return [
+            'employee_id' => 'required|string|max:20',
+            'name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:20',
+            'department' => 'nullable|string|max:10',
+            'position' => 'nullable|string|max:100',
+            'status' => 'nullable|in:active,inactive'
+        ];
     }
 
-    /**
-     * Get import results
-     */
     public function getResults(): array
     {
         $this->importResults['processing_time'] = round(microtime(true) - $this->startTime, 2);
         return $this->importResults;
     }
 
-    /**
-     * Clean and normalize row data
-     */
-    private function cleanRowData(array $row): array
+    public function chunkSize(): int
     {
-        return [
-            'employee_id' => trim(strtoupper($row['employee_id'] ?? '')),
-            'name' => trim($row['name'] ?? ''),
-            'department' => trim(strtoupper($row['department'] ?? $row['department_code'] ?? '')),
-            'position' => trim($row['position'] ?? $row['job_title'] ?? ''),
-            'status' => strtolower(trim($row['status'] ?? 'active')),
-            'hire_date' => $this->parseDate($row['hire_date'] ?? $row['join_date'] ?? null),
-            'background_check_date' => $this->parseDate($row['background_check_date'] ?? null),
-            'background_check_notes' => trim($row['background_check_notes'] ?? '')
+        return 100;
+    }
+
+    /**
+     * Handle errors during import (required by SkipsOnError).
+     */
+    public function onError(\Throwable $e)
+    {
+        $this->importResults['errors']++;
+        $this->importResults['error_details'][] = [
+            'row' => $this->importResults['total_rows'],
+            'employee_id' => 'N/A',
+            'error' => $e->getMessage()
         ];
-    }
-
-    /**
-     * Resolve department by code or name
-     */
-    private function resolveDepartment(?string $departmentIdentifier): ?Department
-    {
-        if (empty($departmentIdentifier)) {
-            return null;
-        }
-
-        // Try by code first
-        if (isset($this->departments[$departmentIdentifier])) {
-            return $this->departments[$departmentIdentifier];
-        }
-
-        // Try by name
-        return $this->departments->first(function($dept) use ($departmentIdentifier) {
-            return strcasecmp($dept->name, $departmentIdentifier) === 0;
-        });
-    }
-
-    /**
-     * Parse date from various formats
-     */
-    private function parseDate($dateValue): ?Carbon
-    {
-        if (empty($dateValue)) {
-            return null;
-        }
-
-        try {
-            // Handle Excel date formats
-            if (is_numeric($dateValue)) {
-                return Carbon::createFromFormat('Y-m-d', \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($dateValue)->format('Y-m-d'));
-            }
-
-            // Handle string dates
-            return Carbon::parse($dateValue);
-        } catch (\Exception $e) {
-            Log::warning('Date parsing failed', ['value' => $dateValue, 'error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    /**
-     * Create new employee
-     */
-    private function createEmployee(array $cleanRow, ?Department $department): Employee
-    {
-        return Employee::create([
-            'employee_id' => $cleanRow['employee_id'],
-            'name' => $cleanRow['name'],
-            'department_id' => $department?->id,
-            'position' => $cleanRow['position'] ?: null,
-            'status' => $cleanRow['status'] ?: 'active',
-            'hire_date' => $cleanRow['hire_date'],
-            'background_check_date' => $cleanRow['background_check_date'],
-            'background_check_notes' => $cleanRow['background_check_notes'] ?: null,
+        Log::error('Employee import error (onError)', [
+            'row' => $this->importResults['total_rows'],
+            'error' => $e->getMessage()
         ]);
     }
 
     /**
-     * Update existing employee
+     * Handle validation failures (required by SkipsOnFailure).
      */
-    private function updateEmployee(Employee $employee, array $cleanRow, ?Department $department): void
+    public function onFailure(...$failures)
     {
-        $updateData = [
-            'name' => $cleanRow['name'],
-            'department_id' => $department?->id,
-        ];
-
-        // Only update non-empty values
-        if (!empty($cleanRow['position'])) {
-            $updateData['position'] = $cleanRow['position'];
+        foreach ($failures as $failure) {
+            $this->importResults['errors']++;
+            $this->importResults['error_details'][] = [
+                'row' => $failure->row() ?? 'N/A',
+                'employee_id' => $failure->values()['employee_id'] ?? 'N/A',
+                'error' => implode('; ', $failure->errors())
+            ];
+            Log::error('Employee import validation failure', [
+                'row' => $failure->row(),
+                'employee_id' => $failure->values()['employee_id'] ?? 'N/A',
+                'error' => implode('; ', $failure->errors())
+            ]);
         }
-
-        if (!empty($cleanRow['status'])) {
-            $updateData['status'] = $cleanRow['status'];
-        }
-
-        if ($cleanRow['hire_date']) {
-            $updateData['hire_date'] = $cleanRow['hire_date'];
-        }
-
-        if ($cleanRow['background_check_date']) {
-            $updateData['background_check_date'] = $cleanRow['background_check_date'];
-        }
-
-        if (!empty($cleanRow['background_check_notes'])) {
-            $updateData['background_check_notes'] = $cleanRow['background_check_notes'];
-        }
-
-        $employee->update($updateData);
     }
 }
+
