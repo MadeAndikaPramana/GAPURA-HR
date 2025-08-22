@@ -9,6 +9,7 @@ use App\Models\Department;
 use App\Models\TrainingType;
 use App\Models\Employee;
 use App\Models\TrainingRecord;
+use App\Models\TrainingProvider;
 use Carbon\Carbon;
 
 class DatabaseSeeder extends Seeder
@@ -31,6 +32,9 @@ class DatabaseSeeder extends Seeder
 
         // Create sample employees
         $this->createSampleEmployees();
+
+        // Create training providers
+        $this->createTrainingProviders();
 
         // Create sample training records
         $this->createSampleTrainingRecords();
@@ -303,14 +307,14 @@ class DatabaseSeeder extends Seeder
                 $issueDate = Carbon::now()->subDays(rand(30, 365));
                 $expiryDate = $issueDate->copy()->addMonths($trainingType->validity_months);
 
-                // Determine status based on expiry date
+                // Determine compliance_status based on expiry date
                 $daysUntilExpiry = $expiryDate->diffInDays(Carbon::now(), false);
-                $status = 'active';
+                $complianceStatus = 'compliant';
 
-                if ($daysUntilExpiry <= 0) {
-                    $status = 'expired';
+                if ($daysUntilExpiry < 0) {
+                    $complianceStatus = 'expired';
                 } elseif ($daysUntilExpiry <= 30) {
-                    $status = 'expiring_soon';
+                    $complianceStatus = 'expiring_soon';
                 }
 
                 $certificateNumber = $trainingType->code . '-' .
@@ -324,8 +328,17 @@ class DatabaseSeeder extends Seeder
                     'issuer' => $this->getRandomIssuer($trainingType->category),
                     'issue_date' => $issueDate,
                     'expiry_date' => $expiryDate,
-                    'status' => $status,
-                    'notes' => rand(1, 3) == 1 ? 'Training completed successfully with excellent performance.' : null
+                    'status' => 'completed', // Always completed for sample records
+                    'notes' => rand(1, 3) == 1 ? 'Training completed successfully with excellent performance.' : null,
+                    'compliance_status' => $complianceStatus,
+                    'training_provider_id' => 1, // Assuming a default provider with ID 1 exists
+                    'score' => rand(70, 100), // Add a sample score
+                    'passing_score' => 70, // Add a sample passing score
+                    'training_hours' => rand(4, 16), // Add sample training hours
+                    'cost' => rand(100, 500), // Add sample cost
+                    'location' => 'Training Center', // Add sample location
+                    'instructor_name' => 'John Doe', // Add sample instructor
+                    'completion_date' => $issueDate, // Set completion date to issue date for simplicity
                 ]);
 
                 $recordCount++;
@@ -349,5 +362,23 @@ class DatabaseSeeder extends Seeder
 
         $categoryIssuers = $issuers[$category] ?? ['Gapura Training Department'];
         return $categoryIssuers[array_rand($categoryIssuers)];
+    }
+
+    private function createTrainingProviders()
+    {
+        $this->command->info('🏢 Creating training providers...');
+
+        $providers = [
+            ['name' => 'Safety Institute Indonesia', 'contact_person' => 'Budi Santoso', 'phone' => '021-1234567', 'email' => 'info@safetyinstitute.co.id', 'address' => 'Jl. Keselamatan No. 10, Jakarta', 'is_active' => true],
+            ['name' => 'Aviation Training Center', 'contact_person' => 'Siti Aminah', 'phone' => '021-7654321', 'email' => 'admin@aviationtc.com', 'address' => 'Jl. Penerbangan No. 5, Tangerang', 'is_active' => true],
+            ['name' => 'Global Security Solutions', 'contact_person' => 'David Lee', 'phone' => '021-9876543', 'email' => 'contact@gss.com', 'address' => 'Jl. Keamanan No. 20, Bekasi', 'is_active' => true],
+            ['name' => 'Tech Skills Academy', 'contact_person' => 'Rina Wijaya', 'phone' => '021-2345678', 'email' => 'info@techskills.id', 'address' => 'Jl. Teknologi No. 15, Bandung', 'is_active' => true],
+            ['name' => 'Quality Management Consult', 'contact_person' => 'Faisal Rahman', 'phone' => '021-8765432', 'email' => 'office@qmc.co.id', 'address' => 'Jl. Kualitas No. 25, Surabaya', 'is_active' => true],
+        ];
+
+        foreach ($providers as $providerData) {
+            $provider = TrainingProvider::create($providerData);
+            $this->command->line("  ✅ {$provider->name}");
+        }
     }
 }

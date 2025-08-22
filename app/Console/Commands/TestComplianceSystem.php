@@ -88,8 +88,10 @@ class TestComplianceSystem extends Command
 
         $this->line("📋 Employee Details:");
         $this->line("   Name: {$employee->name}");
-        $this->line("   Department: {$employee->department->name ?? 'N/A'}");
-        $this->line("   Position: {$employee->position ?? 'N/A'}");
+        $departmentName = isset($employee->department) && isset($employee->department->name) ? $employee->department->name : 'N/A';
+        $this->line("   Department: {$departmentName}");
+        $position = isset($employee->position) ? $employee->position : 'N/A';
+        $this->line("   Position: {$position}");
         $this->line("   Status: {$employee->status}");
         $this->newLine();
 

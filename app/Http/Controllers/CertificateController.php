@@ -11,6 +11,7 @@ use App\Models\TrainingType;
 use App\Services\CertificateService;
 use App\Services\NotificationService;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 
 class CertificateController extends Controller
@@ -198,7 +199,7 @@ class CertificateController extends Controller
             'notes' => $request->notes,
             'is_verified' => true, // Auto-verify internal certificates
             'verification_date' => now(),
-            'verified_by_id' => auth()->id()
+            'verified_by_id' => Auth::id()
         ];
 
         // Handle file upload
@@ -283,7 +284,7 @@ class CertificateController extends Controller
         // Update verification details if marking as verified
         if ($request->is_verified && !$certificate->is_verified) {
             $updateData['verification_date'] = now();
-            $updateData['verified_by_id'] = auth()->id();
+            $updateData['verified_by_id'] = Auth::id();
         }
 
         $certificate->update($updateData);
@@ -371,7 +372,7 @@ class CertificateController extends Controller
                 $certificates->update([
                     'is_verified' => true,
                     'verification_date' => now(),
-                    'verified_by_id' => auth()->id()
+                    'verified_by_id' => Auth::id()
                 ]);
                 $message = 'Certificates verified successfully.';
                 break;

@@ -24,65 +24,79 @@ class TrainingRecordController extends Controller
     /**
      * Display a listing of training records with advanced filtering
      */
-    public function index(Request $request)
-    {
-        $query = TrainingRecord::with(['employee', 'trainingType']);
+    // Fix untuk TrainingRecordController.php - method index()
 
-        // Search functionality
-        if ($request->has('search') && $request->search) {
-            $query->where(function($q) use ($request) {
-                $q->where('certificate_number', 'like', '%' . $request->search . '%')
-                  ->orWhere('issuer', 'like', '%' . $request->search . '%')
-                  ->orWhereHas('employee', function($eq) use ($request) {
-                      $eq->where('name', 'like', '%' . $request->search . '%')
-                         ->orWhere('employee_id', 'like', '%' . $request->search . '%');
-                  })
-                  ->orWhereHas('trainingType', function($tq) use ($request) {
-                      $tq->where('name', 'like', '%' . $request->search . '%');
-                  });
-            });
-        }
+public function index(Request $request)
+{
+    $query = TrainingRecord::with(['employee.department', 'trainingType']);
 
-        // Status filter
-        if ($request->has('status') && $request->status) {
-            $query->where('status', $request->status);
-        }
-
-        // Training type filter
-        if ($request->has('training_type') && $request->training_type) {
-            $query->where('training_type_id', $request->training_type);
-        }
-
-        // Employee filter
-        if ($request->has('employee') && $request->employee) {
-            $query->where('employee_id', $request->employee);
-        }
-
-        // Date range filter
-        if ($request->has('date_from') && $request->date_from) {
-            $query->where('expiry_date', '>=', $request->date_from);
-        }
-        if ($request->has('date_to') && $request->date_to) {
-            $query->where('expiry_date', '<=', $request->date_to);
-        }
-
-        $trainingRecords = $query->orderBy('expiry_date', 'desc')
-            ->paginate(15)
-            ->withQueryString();
-
-        return Inertia::render('TrainingRecords/Index', [
-            'trainingRecords' => $trainingRecords,
-            'employees' => Employee::all(['id', 'name', 'employee_id']),
-            'trainingTypes' => TrainingType::where('is_active', true)->get(['id', 'name']),
-            'filters' => $request->only(['search', 'status', 'training_type', 'employee', 'date_from', 'date_to']),
-            'stats' => [
-                'total' => TrainingRecord::count(),
-                'active' => TrainingRecord::where('status', 'active')->count(),
-                'expiring_soon' => TrainingRecord::where('status', 'expiring_soon')->count(),
-                'expired' => TrainingRecord::where('status', 'expired')->count(),
-            ]
-        ]);
+    // Search functionality
+    if ($request->has('search') && $request->search) {
+        $query->where(function($q) use ($request) {
+            $q->where('certificate_number', 'like', '%' . $request->search . '%')
+              ->orWhere('issuer', 'like', '%' . $request->search . '%')
+              ->orWhereHas('employee', function($eq) use ($request) {
+                  $eq->where('name', 'like', '%' . $request->search . '%')
+                     ->orWhere('employee_id', 'like', '%' . $request->search . '%');
+              })
+              ->orWhereHas('trainingType', function($tq) use ($request) {
+                  $tq->where('name', 'like', '%' . $request->search . '%');
+              });
+        });
     }
+
+    // Status filter
+    if ($request->has('status') && $request->status) {
+        $query->where('status', $request->status);
+    }
+
+    // Training type filter - FIX: gunakan training_type bukan training_type_id
+    if ($request->has('training_type') && $request->training_type) {
+        $query->where('training_type_id', $request->training_type);
+    }
+
+    // Employee filter - FIX: gunakan employee bukan employee_id
+    if ($request->has('employee') && $request->employee) {
+        $query->where('employee_id', $request->employee);
+    }
+
+    // Department filter - TAMBAHAN: filter by department
+    if ($request->has('department') && $request->department) {
+        $query->whereHas('employee', function($eq) use ($request) {
+            $eq->where('department_id', $request->department);
+        });
+    }
+
+    // Date range filter
+    if ($request->has('date_from') && $request->date_from) {
+        $query->where('expiry_date', '>=', $request->date_from);
+    }
+    if ($request->has('date_to') && $request->date_to) {
+        $query->where('expiry_date', '<=', $request->date_to);
+    }
+
+    $trainingRecords = $query->orderBy('expiry_date', 'desc')
+        ->paginate(15)
+        ->withQueryString();
+
+    // Add statistics
+    $stats = [
+        'total_employees' => Employee::count(),
+        'total_certificates' => TrainingRecord::count(),
+        'active_certificates' => TrainingRecord::where('status', 'active')->count(),
+        'expiring_certificates' => TrainingRecord::where('status', 'expiring_soon')->count(),
+        'expired_certificates' => TrainingRecord::where('status', 'expired')->count(),
+    ];
+
+    return Inertia::render('TrainingRecords/Index', [
+        'trainingRecords' => $trainingRecords,
+        'employees' => Employee::all(['id', 'name', 'employee_id']),
+        'trainingTypes' => TrainingType::where('is_active', true)->get(['id', 'name']),
+        'departments' => Department::all(['id', 'name']), // TAMBAHAN
+        'filters' => $request->only(['search', 'status', 'training_type', 'employee', 'department', 'date_from', 'date_to']),
+        'stats' => $stats
+    ]);
+}
 
     /**
      * Show the form for creating a new training record
@@ -240,7 +254,7 @@ class TrainingRecordController extends Controller
         ]);
 
         try {
-            Excel::import(new TrainingRecordsImport, $request->file('file'));
+            Excel::import(new TrainingRecordImport, $request->file('file'));
 
             // Update statuses after import
             $this->statusService->updateAllStatuses();

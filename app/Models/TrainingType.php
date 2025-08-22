@@ -93,13 +93,14 @@ class TrainingType extends Model
      */
     public function departments()
     {
-        return DB::table('departments')
-            ->join('employees', 'departments.id', '=', 'employees.department_id')
-            ->join('training_records', 'employees.id', '=', 'training_records.employee_id')
-            ->where('training_records.training_type_id', $this->id)
-            ->select('departments.*')
-            ->distinct()
-            ->get();
+        return $this->hasManyThrough(
+            Department::class,
+            TrainingRecord::class,
+            'training_type_id', // Foreign key on training_records table
+            'id', // Foreign key on departments table
+            'id', // Local key on training_types table
+            'department_id' // Local key on training_records table
+        )->distinct();
     }
 
     /**
@@ -107,14 +108,11 @@ class TrainingType extends Model
      */
     public function getDepartmentStatsAttribute(): array
     {
-        return DB::table('departments')
-            ->join('employees', 'departments.id', '=', 'employees.department_id')
-            ->join('training_records', 'employees.id', '=', 'training_records.employee_id')
-            ->where('training_records.training_type_id', $this->id)
+        return $this->departments()
             ->selectRaw('
                 departments.id as department_id,
                 departments.name as department_name,
-                COUNT(*) as total_certificates,
+                COUNT(training_records.id) as total_certificates,
                 COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_count,
                 COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_count,
                 COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_count

@@ -10,6 +10,7 @@ use App\Services\NotificationService;
 use App\Services\CertificateService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use App\Models\Notification;
 
 class TrainingMaintenanceCommand extends Command
 {

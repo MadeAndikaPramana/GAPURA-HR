@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Support\Facades\Auth;
 
 class Employee extends Authenticatable
 {
@@ -84,61 +85,27 @@ class Employee extends Authenticatable
     }
 
     /**
-     * Get all training records for this employee
+     * Get all certificates for this employee (a training record is a certificate)
      */
-    public function trainingRecords()
+    public function certificates()
     {
         return $this->hasMany(TrainingRecord::class);
     }
 
     /**
-     * Get completed training records
+     * Get completed certificates
      */
-    public function completedTrainingRecords()
+    public function completedCertificates()
     {
-        return $this->hasMany(TrainingRecord::class)->completed();
+        return $this->certificates()->completed();
     }
 
     /**
-     * Get active/compliant training records
-     */
-    public function activeTrainingRecords()
-    {
-        return $this->hasMany(TrainingRecord::class)->active();
-    }
-
-    /**
-     * Get expired training records
-     */
-    public function expiredTrainingRecords()
-    {
-        return $this->hasMany(TrainingRecord::class)->expired();
-    }
-
-    /**
-     * Get training records expiring soon
-     */
-    public function expiringSoonTrainingRecords()
-    {
-        return $this->hasMany(TrainingRecord::class)->expiringSoon();
-    }
-
-    /**
-     * Get all certificates through training records
-     */
-    public function certificates()
-    {
-        return $this->hasManyThrough(Certificate::class, TrainingRecord::class);
-    }
-
-    /**
-     * Get active certificates
+     * Get active/compliant certificates
      */
     public function activeCertificates()
     {
-        return $this->hasManyThrough(Certificate::class, TrainingRecord::class)
-                    ->where('certificates.expiry_date', '>=', now())
-                    ->orWhereNull('certificates.expiry_date');
+        return $this->certificates()->active();
     }
 
     /**
@@ -146,26 +113,33 @@ class Employee extends Authenticatable
      */
     public function expiredCertificates()
     {
-        return $this->hasManyThrough(Certificate::class, TrainingRecord::class)
-                    ->where('certificates.expiry_date', '<', now());
+        return $this->certificates()->expired();
     }
 
     /**
-     * Get notifications for this employee
+     * Get certificates expiring soon
      */
-    public function notifications()
+    public function expiringSoonCertificates()
     {
-        return $this->hasMany(Notification::class, 'recipient_id');
+        return $this->certificates()->expiringSoon();
     }
 
-    /**
-     * Get unread notifications
-     */
-    public function unreadNotifications()
-    {
-        return $this->hasMany(Notification::class, 'recipient_id')
-                    ->where('status', '!=', 'read');
-    }
+    // /**
+    //  * Get notifications for this employee
+    //  */
+    // public function notifications()
+    // {
+    //     return $this->hasMany(\App\Models\Notification::class, 'recipient_id');
+    // }
+
+    // /**
+    //  * Get unread notifications
+    //  */
+    // public function unreadNotifications()
+    // {
+    //     return $this->hasMany(\App\Models\Notification::class, 'recipient_id')
+    //                 ->where('status', '!=', 'read');
+    // }
 
     /**
      * Get training records created by this employee
@@ -175,13 +149,13 @@ class Employee extends Authenticatable
         return $this->hasMany(TrainingRecord::class, 'created_by_id');
     }
 
-    /**
-     * Get certificates verified by this employee
-     */
-    public function verifiedCertificates()
-    {
-        return $this->hasMany(Certificate::class, 'verified_by_id');
-    }
+    // /**
+    //  * Get certificates verified by this employee
+    //  */
+    // public function verifiedCertificates()
+    // {
+    //     return $this->hasMany(Certificate::class, 'verified_by_id');
+    // }
 
     /**
      * Scope for active employees
@@ -272,7 +246,7 @@ class Employee extends Authenticatable
             return 'compliant';
         }
 
-        $employeeTrainings = $this->trainingRecords()
+        $employeeTrainings = $this->certificates()
             ->whereIn('training_type_id', $mandatoryTrainings)
             ->get();
 
@@ -310,7 +284,7 @@ class Employee extends Authenticatable
      */
     public function hasTraining($trainingTypeId, $mustBeActive = true)
     {
-        $query = $this->trainingRecords()->where('training_type_id', $trainingTypeId);
+        $query = $this->certificates()->where('training_type_id', $trainingTypeId);
 
         if ($mustBeActive) {
             $query->where('compliance_status', 'compliant');
@@ -325,9 +299,7 @@ class Employee extends Authenticatable
     public function hasValidCertificate($trainingTypeId)
     {
         return $this->certificates()
-            ->whereHas('trainingRecord', function ($q) use ($trainingTypeId) {
-                $q->where('training_type_id', $trainingTypeId);
-            })
+            ->where('training_type_id', $trainingTypeId)
             ->where(function ($q) {
                 $q->whereNull('expiry_date')
                   ->orWhere('expiry_date', '>=', now());
@@ -352,12 +324,12 @@ class Employee extends Authenticatable
         ];
 
         foreach ($mandatoryTrainings as $trainingType) {
-            $trainingRecord = $this->trainingRecords()
+            $certificate = $this->certificates()
                 ->where('training_type_id', $trainingType->id)
                 ->latest()
                 ->first();
 
-            if (!$trainingRecord) {
+            if (!$certificate) {
                 $summary['missing']++;
                 $summary['details'][] = [
                     'training_type' => $trainingType->name,
@@ -367,7 +339,7 @@ class Employee extends Authenticatable
             } else {
                 $summary['completed']++;
 
-                switch ($trainingRecord->compliance_status) {
+                switch ($certificate->compliance_status) {
                     case 'compliant':
                         $summary['compliant']++;
                         break;
@@ -381,10 +353,10 @@ class Employee extends Authenticatable
 
                 $summary['details'][] = [
                     'training_type' => $trainingType->name,
-                    'status' => $trainingRecord->compliance_status,
-                    'expiry_date' => $trainingRecord->expiry_date,
-                    'days_until_expiry' => $trainingRecord->days_until_expiry,
-                    'action_required' => $trainingRecord->getRenewalRecommendation()['action'] ?? null
+                    'status' => $certificate->compliance_status,
+                    'expiry_date' => $certificate->expiry_date,
+                    'days_until_expiry' => $certificate->days_until_expiry,
+                    'action_required' => $certificate->getRenewalRecommendation()['action'] ?? null
                 ];
             }
         }
@@ -401,7 +373,7 @@ class Employee extends Authenticatable
      */
     public function getUpcomingTrainings($days = 30)
     {
-        return $this->trainingRecords()
+        return $this->certificates()
             ->where('status', 'registered')
             ->whereNotNull('training_date')
             ->whereBetween('training_date', [now(), now()->addDays($days)])
@@ -415,8 +387,8 @@ class Employee extends Authenticatable
      */
     public function getTrainingHistory($year = null)
     {
-        $query = $this->completedTrainingRecords()
-            ->with(['trainingType.category', 'trainingProvider', 'certificates']);
+        $query = $this->completedCertificates()
+            ->with(['trainingType.category', 'trainingProvider']);
 
         if ($year) {
             $query->whereYear('completion_date', $year);
@@ -431,7 +403,7 @@ class Employee extends Authenticatable
                 'total_hours' => $trainings->sum('training_hours'),
                 'total_cost' => $trainings->sum('cost'),
                 'average_score' => $trainings->avg('score'),
-                'certificates_earned' => $trainings->flatMap->certificates->count(),
+                'certificates_earned' => $trainings->count(),
                 'by_category' => $trainings->groupBy('trainingType.category.name')->map->count(),
                 'by_year' => $trainings->groupBy(fn($t) => $t->completion_date->year)->map->count()
             ]
@@ -444,7 +416,7 @@ class Employee extends Authenticatable
     public function getTeamComplianceStatus()
     {
         return $this->subordinates()
-            ->with(['department', 'trainingRecords.trainingType'])
+            ->with(['department', 'certificates.trainingType'])
             ->get()
             ->map(function ($employee) {
                 return [
@@ -462,7 +434,7 @@ class Employee extends Authenticatable
         $trainingType = TrainingType::findOrFail($trainingTypeId);
 
         // Check if employee already has active training of this type
-        $existingRecord = $this->trainingRecords()
+        $existingRecord = $this->certificates()
             ->where('training_type_id', $trainingTypeId)
             ->where('compliance_status', 'compliant')
             ->first();
@@ -483,14 +455,14 @@ class Employee extends Authenticatable
             'cost' => $trainingType->cost_per_person,
             'training_hours' => $trainingType->duration_hours,
             'passing_score' => 70.00,
-            'created_by_id' => auth()->id()
+            'created_by_id' => Auth::id()
         ], $additionalData);
 
         $trainingRecord = TrainingRecord::create($trainingData);
 
         // Send notification
-        app(\App\Services\NotificationService::class)
-            ->sendTrainingAssignmentNotification($trainingRecord);
+        // app(\App\Services\NotificationService::class)
+        //     ->sendTrainingAssignmentNotification($trainingRecord);
 
         return [
             'success' => true,
@@ -508,23 +480,22 @@ class Employee extends Authenticatable
             'compliance_summary' => $this->getTrainingComplianceSummary(),
             'upcoming_trainings' => $this->getUpcomingTrainings(),
             'recent_certificates' => $this->certificates()
-                ->with(['trainingRecord.trainingType'])
+                ->with(['trainingType'])
                 ->latest()
                 ->limit(5)
                 ->get(),
-            'expiring_certificates' => $this->certificates()
-                ->with(['trainingRecord.trainingType'])
-                ->whereBetween('expiry_date', [now(), now()->addDays(90)])
+            'expiring_certificates' => $this->expiringSoonCertificates()
+                ->with(['trainingType'])
                 ->orderBy('expiry_date')
                 ->get(),
-            'unread_notifications' => $this->unreadNotifications()
-                ->orderBy('priority', 'desc')
-                ->orderBy('created_at', 'desc')
-                ->limit(10)
-                ->get(),
+            // 'unread_notifications' => $this->unreadNotifications()
+            //     ->orderBy('priority', 'desc')
+            //     ->orderBy('created_at', 'desc')
+            //     ->limit(10)
+            //     ->get(),
             'training_progress' => [
-                'total_hours' => $this->completedTrainingRecords()->sum('training_hours'),
-                'this_year_hours' => $this->completedTrainingRecords()
+                'total_hours' => $this->completedCertificates()->sum('training_hours'),
+                'this_year_hours' => $this->completedCertificates()
                     ->whereYear('completion_date', date('Y'))
                     ->sum('training_hours'),
                 'certificates_earned' => $this->certificates()->count(),
@@ -542,7 +513,7 @@ class Employee extends Authenticatable
     {
         $year = $year ?: date('Y');
 
-        $trainings = $this->completedTrainingRecords()
+        $trainings = $this->completedCertificates()
             ->whereYear('completion_date', $year)
             ->get();
 
@@ -561,11 +532,11 @@ class Employee extends Authenticatable
      */
     private function calculateCompletionRate($year)
     {
-        $scheduled = $this->trainingRecords()
+        $scheduled = $this->certificates()
             ->whereYear('training_date', $year)
             ->count();
 
-        $completed = $this->completedTrainingRecords()
+        $completed = $this->completedCertificates()
             ->whereYear('completion_date', $year)
             ->count();
 
@@ -593,7 +564,7 @@ class Employee extends Authenticatable
             $areas[] = 'Consider additional study for low-scoring training areas';
         }
 
-        $expiredCount = $this->expiredTrainingRecords()->count();
+        $expiredCount = $this->expiredCertificates()->count();
         if ($expiredCount > 0) {
             $areas[] = 'Renew expired certificates to maintain compliance';
         }
@@ -608,7 +579,7 @@ class Employee extends Authenticatable
     {
         $achievements = [];
 
-        $trainings = $this->completedTrainingRecords()
+        $trainings = $this->completedCertificates()
             ->whereYear('completion_date', $year)
             ->get();
 

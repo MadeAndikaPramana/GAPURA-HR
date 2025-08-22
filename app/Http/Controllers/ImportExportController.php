@@ -20,6 +20,7 @@ use App\Models\Certificate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class ImportExportController extends Controller
 {
@@ -74,7 +75,7 @@ class ImportExportController extends Controller
             $results = $import->getResults();
 
             Log::info('Employee import completed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'filename' => $file->getClientOriginalName(),
                 'results' => $results
             ]);
@@ -85,7 +86,7 @@ class ImportExportController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Employee import failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
 
@@ -117,7 +118,7 @@ class ImportExportController extends Controller
             );
         } catch (\Exception $e) {
             Log::error('Employee export failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
 
@@ -162,7 +163,7 @@ class ImportExportController extends Controller
             $results = $import->getResults();
 
             Log::info('Training records import completed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'filename' => $file->getClientOriginalName(),
                 'results' => $results
             ]);
@@ -173,7 +174,7 @@ class ImportExportController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Training records import failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
 
@@ -210,7 +211,7 @@ class ImportExportController extends Controller
             );
         } catch (\Exception $e) {
             Log::error('Training records export failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage(),
                 'filters' => $filters
             ]);
@@ -254,7 +255,7 @@ class ImportExportController extends Controller
             $results = $import->getResults();
 
             Log::info('Certificates import completed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'filename' => $file->getClientOriginalName(),
                 'results' => $results
             ]);
@@ -265,7 +266,7 @@ class ImportExportController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Certificates import failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
 
@@ -303,7 +304,7 @@ class ImportExportController extends Controller
             );
         } catch (\Exception $e) {
             Log::error('Certificates export failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage(),
                 'filters' => $filters
             ]);
@@ -342,7 +343,7 @@ class ImportExportController extends Controller
             );
         } catch (\Exception $e) {
             Log::error('Compliance report export failed', [
-                'user_id' => auth()->id(),
+                'user_id' => Auth::id(),
                 'error' => $e->getMessage()
             ]);
 

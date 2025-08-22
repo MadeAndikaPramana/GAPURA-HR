@@ -13,6 +13,13 @@ use App\Http\Resources\CertificateResource;
 use App\Http\Resources\TrainingRecordResource;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+class User extends Authenticatable
+{
+    use Notifiable, HasRoles;
 
 class EmployeeApiController extends Controller
 {

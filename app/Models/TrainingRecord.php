@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Auth;
 
 class TrainingRecord extends Model
 {
@@ -90,29 +91,29 @@ class TrainingRecord extends Model
         return $this->belongsTo(TrainingProvider::class);
     }
 
-    /**
-     * Get all certificates for this training record
-     */
-    public function certificates()
-    {
-        return $this->hasMany(Certificate::class);
-    }
+    // /**
+    //  * Get all certificates for this training record
+    //  */
+    // public function certificates()
+    // {
+    //     return $this->hasMany(Certificate::class);
+    // }
 
-    /**
-     * Get the latest certificate
-     */
-    public function latestCertificate()
-    {
-        return $this->hasOne(Certificate::class)->latest();
-    }
+    // /**
+    //  * Get the latest certificate
+    //  */
+    // public function latestCertificate()
+    // {
+    //     return $this->hasOne(Certificate::class)->latest();
+    // }
 
-    /**
-     * Get active certificates (not expired)
-     */
-    public function activeCertificates()
-    {
-        return $this->hasMany(Certificate::class)->active();
-    }
+    // /**
+    //  * Get active certificates (not expired)
+    //  */
+    // public function activeCertificates()
+    // {
+    //     return $this->hasMany(Certificate::class)->active();
+    // }
 
     /**
      * Get the user who created this record
@@ -317,9 +318,9 @@ class TrainingRecord extends Model
         ]);
 
         // Auto-create certificate if training type requires it
-        if ($this->trainingType->requires_certification && !$this->certificates()->exists()) {
-            app(\App\Services\CertificateService::class)->createCertificateFromTrainingRecord($this);
-        }
+        // if ($this->trainingType->requires_certification && !$this->certificates()->exists()) {
+        //     app(\App\Services\CertificateService::class)->createCertificateFromTrainingRecord($this);
+        // }
 
         return $this;
     }
@@ -423,7 +424,7 @@ class TrainingRecord extends Model
             'training_hours' => $this->trainingType->duration_hours,
             'passing_score' => $this->passing_score,
             'notes' => 'Renewal of training record ID: ' . $this->id,
-            'created_by_id' => auth()->id()
+            'created_by_id' => Auth::id()
         ];
 
         return static::create($renewalData);

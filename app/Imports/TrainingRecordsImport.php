@@ -19,7 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
-class EnhancedTrainingRecordImport implements
+class TrainingRecordImport implements
     ToModel,
     WithHeadingRow,
     WithValidation,
