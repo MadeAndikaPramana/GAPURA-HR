@@ -2,56 +2,73 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Inertia\Inertia;
 use App\Models\Employee;
 use App\Models\Department;
-use App\Imports\EmployeesImport;
-use App\Exports\EmployeesExport;
-use Maatwebsite\Excel\Facades\Excel;
+use App\Models\TrainingRecord;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 
 class EmployeeController extends Controller
 {
     /**
-     * Display a listing of employees with enhanced features
+     * Display a listing of employees
      */
     public function index(Request $request)
     {
-        $query = Employee::with('department');
+        $query = Employee::with(['department']);
 
-        // Search functionality
-        if ($request->has('search') && $request->search) {
-            $query->where(function($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhere('employee_id', 'like', '%' . $request->search . '%')
-                  ->orWhere('position', 'like', '%' . $request->search . '%');
+        // Apply filters
+        if ($request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_id', 'like', "%{$search}%")
+                  ->orWhere('position', 'like', "%{$search}%");
             });
         }
 
-        // Department filter
-        if ($request->has('department') && $request->department) {
-            $query->where('department_id', $request->department);
+        if ($request->filled('department')) {
+            $query->where('department_id', $request->get('department'));
         }
 
-        // Status filter
-        if ($request->has('status') && $request->status) {
-            $query->where('status', $request->status);
+        if ($request->filled('status')) {
+            $query->where('status', $request->get('status'));
         }
 
-        $employees = $query->paginate(15)->withQueryString();
+        $employees = $query->orderBy('created_at', 'desc')->paginate(15);
+
+        // PERBAIKAN: Calculate statistics untuk frontend
+        $stats = [
+            'total' => Employee::count(),
+            'active' => Employee::where('status', 'active')->count(),
+            'inactive' => Employee::where('status', 'inactive')->count(),
+            'by_department' => Department::withCount('employees')->get()->map(function ($dept) {
+                return [
+                    'name' => $dept->name,
+                    'count' => $dept->employees_count
+                ];
+            }),
+            'departments_count' => Department::count(),
+            'training_records_count' => TrainingRecord::count(),
+            'active_training_records' => TrainingRecord::where('status', 'active')->count(),
+            'expired_training_records' => TrainingRecord::where('status', 'expired')->count(),
+            'expiring_soon_records' => TrainingRecord::where('status', 'expiring_soon')->count(),
+        ];
+
+        // Calculate compliance rate
+        $totalRecords = $stats['training_records_count'];
+        $stats['compliance_rate'] = $totalRecords > 0
+            ? round(($stats['active_training_records'] / $totalRecords) * 100, 1)
+            : 0;
 
         return Inertia::render('Employees/Index', [
             'employees' => $employees,
             'departments' => Department::all(['id', 'name']),
             'filters' => $request->only(['search', 'department', 'status']),
-            'stats' => [
-                'total' => Employee::count(),
-                'active' => Employee::where('status', 'active')->count(),
-                'by_department' => Employee::with('department')
-                    ->selectRaw('department_id, count(*) as count')
-                    ->groupBy('department_id')
-                    ->get()
-            ]
+            'stats' => $stats // PERBAIKAN: Kirim stats ke frontend
         ]);
     }
 
@@ -159,20 +176,161 @@ class EmployeeController extends Controller
     }
 
     /**
-     * Remove the specified employee
+     * Remove the specified employee - IMPROVED VERSION
      */
     public function destroy(Employee $employee)
     {
-        // Check if employee has training records
-        if ($employee->trainingRecords()->count() > 0) {
+        // Log delete attempt
+        Log::info('Employee delete attempt', [
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'user_id' => Auth::id(),
+            'ip' => request()->ip()
+        ]);
+
+        try {
+            // Start database transaction
+            DB::beginTransaction();
+
+            // Double-check: Load the employee with training records
+            $employeeWithRecords = Employee::with('trainingRecords')->find($employee->id);
+
+            if (!$employeeWithRecords) {
+                Log::error('Employee not found during delete', ['employee_id' => $employee->id]);
+                return redirect()->route('employees.index')
+                    ->with('error', 'Employee tidak ditemukan.');
+            }
+
+            // Count training records
+            $trainingRecordsCount = $employeeWithRecords->trainingRecords()->count();
+
+            Log::info('Training records check', [
+                'employee_id' => $employee->id,
+                'training_records_count' => $trainingRecordsCount
+            ]);
+
+            // Check if employee has training records
+            if ($trainingRecordsCount > 0) {
+                Log::warning('Delete blocked - employee has training records', [
+                    'employee_id' => $employee->id,
+                    'training_records_count' => $trainingRecordsCount
+                ]);
+
+                DB::rollback();
+                return redirect()->route('employees.index')
+                    ->with('error', "Tidak dapat menghapus karyawan {$employee->name} karena memiliki {$trainingRecordsCount} training record(s). Hapus training records terlebih dahulu atau non-aktifkan karyawan.");
+            }
+
+            // Perform the delete
+            $employeeName = $employee->name;
+            $employeeId = $employee->employee_id;
+
+            $deleted = $employee->delete();
+
+            if (!$deleted) {
+                throw new \Exception('Failed to delete employee from database');
+            }
+
+            // Commit transaction
+            DB::commit();
+
+            Log::info('Employee deleted successfully', [
+                'employee_id' => $employee->id,
+                'employee_name' => $employeeName,
+                'user_id' => Auth::id()
+            ]);
+
             return redirect()->route('employees.index')
-                ->with('error', 'Tidak dapat menghapus employee yang memiliki training records.');
+                ->with('success', "Karyawan {$employeeName} ({$employeeId}) berhasil dihapus.");
+
+        } catch (\Exception $e) {
+            // Rollback transaction
+            DB::rollback();
+
+            Log::error('Employee delete failed', [
+                'employee_id' => $employee->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => Auth::id()
+            ]);
+
+            return redirect()->route('employees.index')
+                ->with('error', 'Gagal menghapus karyawan: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * DEBUGGING HELPER METHODS
+     */
+
+    /**
+     * Check employee dependencies (for debugging)
+     */
+    public function checkDependencies(Employee $employee)
+    {
+        $dependencies = [
+            'training_records' => $employee->trainingRecords()->count(),
+            'created_training_records' => $employee->createdTrainingRecords()->count(),
+            // Add more dependency checks here
+        ];
+
+        Log::info('Employee dependencies check', [
+            'employee_id' => $employee->id,
+            'dependencies' => $dependencies
+        ]);
+
+        return response()->json([
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'dependencies' => $dependencies,
+            'can_delete' => array_sum($dependencies) === 0
+        ]);
+    }
+
+    /**
+     * Force delete employee (for admin/debugging only)
+     */
+    public function forceDestroy(Employee $employee)
+    {
+        // Only allow in development environment
+        if (!app()->environment('local')) {
+            abort(403, 'Force delete only available in development');
         }
 
-        $employee->delete();
+        Log::warning('FORCE DELETE initiated', [
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->name,
+            'user_id' => Auth::id()
+        ]);
 
-        return redirect()->route('employees.index')
-            ->with('success', 'Employee berhasil dihapus.');
+        try {
+            DB::beginTransaction();
+
+            // Delete all training records first (cascade should handle this, but just in case)
+            $employee->trainingRecords()->delete();
+
+            // Delete employee
+            $employee->delete();
+
+            DB::commit();
+
+            Log::warning('FORCE DELETE completed', [
+                'employee_id' => $employee->id
+            ]);
+
+            return redirect()->route('employees.index')
+                ->with('success', 'Employee FORCE DELETED successfully (DEV MODE)');
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            Log::error('Force delete failed', [
+                'employee_id' => $employee->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return redirect()->route('employees.index')
+                ->with('error', 'Force delete failed: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -242,112 +400,10 @@ class EmployeeController extends Controller
                 break;
 
             case 'export':
-                return Excel::download(
-                    new EmployeesExport(['employee_ids' => $request->employee_ids]),
-                    'selected_employees.xlsx'
-                );
+                $filters = ['employee_ids' => $request->employee_ids];
+                return Excel::download(new EmployeesExport($filters), 'selected_employees.xlsx');
         }
 
-        return redirect()->route('employees.index')
-            ->with('success', $message);
-    }
-
-    /**
-     * Get employee statistics for dashboard
-     */
-    public function getStatistics()
-    {
-        $stats = [
-            'total_employees' => Employee::count(),
-            'active_employees' => Employee::where('status', 'active')->count(),
-            'inactive_employees' => Employee::where('status', 'inactive')->count(),
-            'by_department' => Employee::with('department')
-                ->selectRaw('department_id, departments.name as department_name, count(*) as count')
-                ->join('departments', 'employees.department_id', '=', 'departments.id')
-                ->groupBy('department_id', 'departments.name')
-                ->get(),
-            'recent_additions' => Employee::with('department')
-                ->orderBy('created_at', 'desc')
-                ->limit(5)
-                ->get(),
-            'employees_with_trainings' => Employee::has('trainingRecords')->count(),
-            'employees_without_trainings' => Employee::doesntHave('trainingRecords')->count()
-        ];
-
-        return response()->json($stats);
-    }
-
-    /**
-     * Search employees for autocomplete/select
-     */
-    public function search(Request $request)
-    {
-        $query = $request->get('q');
-
-        $employees = Employee::where(function($q) use ($query) {
-                $q->where('name', 'like', "%{$query}%")
-                  ->orWhere('employee_id', 'like', "%{$query}%");
-            })
-            ->with('department')
-            ->limit(10)
-            ->get()
-            ->map(function($employee) {
-                return [
-                    'id' => $employee->id,
-                    'employee_id' => $employee->employee_id,
-                    'name' => $employee->name,
-                    'department' => $employee->department?->name,
-                    'position' => $employee->position,
-                    'status' => $employee->status
-                ];
-            });
-
-        return response()->json($employees);
-    }
-
-    /**
-     * Get employee training compliance summary
-     */
-    public function getComplianceSummary(Employee $employee)
-    {
-        $trainingRecords = $employee->trainingRecords()->with('trainingType')->get();
-
-        $summary = [
-            'employee' => $employee,
-            'total_trainings' => $trainingRecords->count(),
-            'active_trainings' => $trainingRecords->where('status', 'active')->count(),
-            'expiring_trainings' => $trainingRecords->where('status', 'expiring_soon')->count(),
-            'expired_trainings' => $trainingRecords->where('status', 'expired')->count(),
-            'by_category' => $trainingRecords->groupBy('trainingType.category')->map(function($records, $category) {
-                return [
-                    'category' => $category,
-                    'total' => $records->count(),
-                    'active' => $records->where('status', 'active')->count(),
-                    'expiring' => $records->where('status', 'expiring_soon')->count(),
-                    'expired' => $records->where('status', 'expired')->count(),
-                ];
-            })
-        ];
-
-        return response()->json($summary);
-    }
-
-    /**
-     * Get employees requiring training renewal
-     */
-    public function getEmployeesRequiringRenewal($days = 30)
-    {
-        $employees = Employee::with(['trainingRecords' => function($query) use ($days) {
-            $query->where('expiry_date', '<=', now()->addDays($days))
-                  ->where('expiry_date', '>=', now())
-                  ->with('trainingType');
-        }])
-        ->has('trainingRecords')
-        ->get()
-        ->filter(function($employee) {
-            return $employee->trainingRecords->count() > 0;
-        });
-
-        return response()->json($employees);
+        return redirect()->back()->with('success', $message);
     }
 }

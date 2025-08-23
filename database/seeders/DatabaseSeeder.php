@@ -10,10 +10,18 @@ use App\Models\TrainingType;
 use App\Models\Employee;
 use App\Models\TrainingRecord;
 use App\Models\TrainingProvider;
+use App\Services\TrainingStatusService; // TAMBAHAN: Import service
 use Carbon\Carbon;
 
 class DatabaseSeeder extends Seeder
 {
+    protected $statusService;
+
+    public function __construct()
+    {
+        $this->statusService = app(TrainingStatusService::class);
+    }
+
     /**
      * Seed the application's database.
      */
@@ -30,16 +38,17 @@ class DatabaseSeeder extends Seeder
         // Create admin user
         $this->createAdminUser();
 
-        // Create sample employees
-        $this->createSampleEmployees();
-
         // Create training providers
         $this->createTrainingProviders();
 
-        // Create sample training records
+        // Create sample employees
+        $this->createSampleEmployees();
+
+        // Create sample training records (UPDATED dengan service baru)
         $this->createSampleTrainingRecords();
 
         $this->command->info('✅ Database seeding completed successfully!');
+        $this->showFinalStatistics(); // TAMBAHAN: Show final stats
     }
 
     private function createDepartments()
@@ -116,21 +125,24 @@ class DatabaseSeeder extends Seeder
                 'code' => 'FIRE',
                 'category' => 'Safety',
                 'validity_months' => 12,
-                'description' => 'Fire prevention, suppression, and emergency evacuation procedures'
+                'description' => 'Fire prevention, suppression, and emergency evacuation procedures',
+                'is_active' => true // TAMBAHAN: Field is_active
             ],
             [
                 'name' => 'First Aid Training',
                 'code' => 'FIRST',
                 'category' => 'Safety',
                 'validity_months' => 24,
-                'description' => 'Basic first aid and emergency medical response training'
+                'description' => 'Basic first aid and emergency medical response training',
+                'is_active' => true
             ],
             [
                 'name' => 'Occupational Health & Safety',
                 'code' => 'OHS',
                 'category' => 'Safety',
                 'validity_months' => 12,
-                'description' => 'Workplace safety regulations and hazard prevention'
+                'description' => 'Workplace safety regulations and hazard prevention',
+                'is_active' => true
             ],
 
             // Aviation Training
@@ -139,21 +151,24 @@ class DatabaseSeeder extends Seeder
                 'code' => 'DG',
                 'category' => 'Aviation',
                 'validity_months' => 24,
-                'description' => 'Handling and transportation of dangerous goods by air'
+                'description' => 'Handling and transportation of dangerous goods by air',
+                'is_active' => true
             ],
             [
                 'name' => 'Ground Handling Training',
                 'code' => 'GH',
                 'category' => 'Aviation',
                 'validity_months' => 36,
-                'description' => 'Aircraft ground handling procedures and safety'
+                'description' => 'Aircraft ground handling procedures and safety',
+                'is_active' => true
             ],
             [
                 'name' => 'Aviation Security Training',
                 'code' => 'AVSEC',
                 'category' => 'Security',
                 'validity_months' => 12,
-                'description' => 'Airport security procedures and threat assessment'
+                'description' => 'Airport security procedures and threat assessment',
+                'is_active' => true
             ],
 
             // Technical Training
@@ -162,14 +177,16 @@ class DatabaseSeeder extends Seeder
                 'code' => 'EQP',
                 'category' => 'Technical',
                 'validity_months' => 18,
-                'description' => 'Safe operation of ground support equipment'
+                'description' => 'Safe operation of ground support equipment',
+                'is_active' => true
             ],
             [
                 'name' => 'Maintenance Procedures',
                 'code' => 'MAINT',
                 'category' => 'Technical',
                 'validity_months' => 24,
-                'description' => 'Equipment maintenance and troubleshooting procedures'
+                'description' => 'Equipment maintenance and troubleshooting procedures',
+                'is_active' => true
             ],
 
             // Compliance Training
@@ -178,14 +195,16 @@ class DatabaseSeeder extends Seeder
                 'code' => 'MPGA',
                 'category' => 'Compliance',
                 'validity_months' => 12,
-                'description' => 'PT. Gapura Angkasa standard operating procedures and compliance'
+                'description' => 'PT. Gapura Angkasa standard operating procedures and compliance',
+                'is_active' => true
             ],
             [
                 'name' => 'ISO 9001 Quality Management',
                 'code' => 'ISO9001',
                 'category' => 'Quality',
                 'validity_months' => 36,
-                'description' => 'Quality management system standards and procedures'
+                'description' => 'Quality management system standards and procedures',
+                'is_active' => true
             ],
 
             // Customer Service
@@ -194,14 +213,16 @@ class DatabaseSeeder extends Seeder
                 'code' => 'CS',
                 'category' => 'Service',
                 'validity_months' => 24,
-                'description' => 'Customer service standards and communication skills'
+                'description' => 'Customer service standards and communication skills',
+                'is_active' => true
             ],
             [
                 'name' => 'Passenger Assistance Training',
                 'code' => 'PAX',
                 'category' => 'Service',
                 'validity_months' => 18,
-                'description' => 'Special assistance for passengers with disabilities'
+                'description' => 'Special assistance for passengers with disabilities',
+                'is_active' => true
             ]
         ];
 
@@ -220,11 +241,100 @@ class DatabaseSeeder extends Seeder
             'email' => 'admin@gapura.com',
             'email_verified_at' => now(),
             'password' => bcrypt('password'),
-            'role' => 'super_admin',
-            'is_active' => true,
+            // 'role' => 'super_admin', // Uncomment jika ada role field
+            // 'is_active' => true,     // Uncomment jika ada is_active field
         ]);
 
         $this->command->line("  ✅ Admin user created: {$adminUser->email}");
+        $this->command->line("  🔑 Password: password");
+    }
+
+    private function createTrainingProviders()
+    {
+        $this->command->info('🏢 Creating training providers...');
+
+        $providers = [
+            [
+                'name' => 'Safety Institute Indonesia',
+                'code' => 'SII', // TAMBAHAN: Field code
+                'contact_person' => 'Budi Santoso',
+                'phone' => '021-1234567',
+                'email' => 'info@safetyinstitute.co.id',
+                'address' => 'Jl. Keselamatan No. 10, Jakarta',
+                'website' => 'https://safetyinstitute.co.id', // TAMBAHAN: Field website
+                'accreditation_number' => 'ACC-SII-2024-001', // TAMBAHAN: Accreditation
+                'accreditation_expiry' => Carbon::now()->addYears(3),
+                'contract_start_date' => Carbon::now()->subYear(),
+                'contract_end_date' => Carbon::now()->addYears(2),
+                'rating' => 4.5,
+                'is_active' => true
+            ],
+            [
+                'name' => 'Aviation Training Center',
+                'code' => 'ATC',
+                'contact_person' => 'Siti Aminah',
+                'phone' => '021-7654321',
+                'email' => 'admin@aviationtc.com',
+                'address' => 'Jl. Penerbangan No. 5, Tangerang',
+                'website' => 'https://aviationtc.com',
+                'accreditation_number' => 'ACC-ATC-2024-002',
+                'accreditation_expiry' => Carbon::now()->addYears(3),
+                'contract_start_date' => Carbon::now()->subYear(),
+                'contract_end_date' => Carbon::now()->addYears(2),
+                'rating' => 4.8,
+                'is_active' => true
+            ],
+            [
+                'name' => 'Global Security Solutions',
+                'code' => 'GSS',
+                'contact_person' => 'David Lee',
+                'phone' => '021-9876543',
+                'email' => 'contact@gss.com',
+                'address' => 'Jl. Keamanan No. 20, Bekasi',
+                'website' => 'https://gss.com',
+                'accreditation_number' => 'ACC-GSS-2024-003',
+                'accreditation_expiry' => Carbon::now()->addYears(3),
+                'contract_start_date' => Carbon::now()->subYear(),
+                'contract_end_date' => Carbon::now()->addYears(2),
+                'rating' => 4.2,
+                'is_active' => true
+            ],
+            [
+                'name' => 'Tech Skills Academy',
+                'code' => 'TSA',
+                'contact_person' => 'Rina Wijaya',
+                'phone' => '021-2345678',
+                'email' => 'info@techskills.id',
+                'address' => 'Jl. Teknologi No. 15, Bandung',
+                'website' => 'https://techskills.id',
+                'accreditation_number' => 'ACC-TSA-2024-004',
+                'accreditation_expiry' => Carbon::now()->addYears(3),
+                'contract_start_date' => Carbon::now()->subYear(),
+                'contract_end_date' => Carbon::now()->addYears(2),
+                'rating' => 4.6,
+                'is_active' => true
+            ],
+            [
+                'name' => 'Quality Management Consult',
+                'code' => 'QMC',
+                'contact_person' => 'Faisal Rahman',
+                'phone' => '021-8765432',
+                'email' => 'office@qmc.co.id',
+                'address' => 'Jl. Kualitas No. 25, Surabaya',
+                'website' => 'https://qmc.co.id',
+                'accreditation_number' => 'ACC-QMC-2024-005',
+                'accreditation_expiry' => Carbon::now()->addYears(3),
+                'contract_start_date' => Carbon::now()->subYear(),
+                'contract_end_date' => Carbon::now()->addYears(2),
+                'rating' => 4.3,
+                'is_active' => true
+            ]
+        ];
+
+        foreach ($providers as $providerData) {
+            $provider = TrainingProvider::create($providerData);
+            $this->command->line("  ✅ {$provider->name} ({$provider->code}) - Rating: {$provider->rating}");
+        }
     }
 
     private function createSampleEmployees()
@@ -292,93 +402,188 @@ class DatabaseSeeder extends Seeder
 
     private function createSampleTrainingRecords()
     {
-        $this->command->info('📚 Creating sample training records...');
+        $this->command->info('📚 Creating sample training records with realistic data...');
 
-        $employees = Employee::all();
+        $employees = Employee::with('department')->get();
         $trainingTypes = TrainingType::all();
+        $providers = TrainingProvider::all();
         $recordCount = 0;
 
+        $locations = [
+            'Jakarta Training Center',
+            'Head Office Meeting Room A',
+            'Surabaya Training Facility',
+            'Denpasar Airport Training Room',
+            'Online Training Platform',
+            'External Training Venue',
+            'Simulator Training Center',
+            'Safety Training Ground'
+        ];
+
+        $instructors = [
+            'Capt. Budi Setiawan',
+            'Dr. Sari Wulandari',
+            'Eng. Ahmad Pratama',
+            'Prof. Nina Kartini',
+            'Mr. David Johnson',
+            'Ms. Lisa Anderson',
+            'Ir. Agus Permana',
+            'Dr. Rina Kusumawati'
+        ];
+
         foreach ($employees as $employee) {
-            // Each employee gets 2-5 random training records
+            // Each employee gets 2-5 random training records dengan beberapa renewals
             $numTrainings = rand(2, 5);
             $selectedTypes = $trainingTypes->random($numTrainings);
 
             foreach ($selectedTypes as $trainingType) {
-                $issueDate = Carbon::now()->subDays(rand(30, 365));
-                $expiryDate = $issueDate->copy()->addMonths($trainingType->validity_months);
+                // Create 1-3 records per training type (termasuk renewals)
+                $recordsPerType = rand(1, 3);
 
-                // Determine compliance_status based on expiry date
-                $daysUntilExpiry = $expiryDate->diffInDays(Carbon::now(), false);
-                $complianceStatus = 'compliant';
+                for ($i = 0; $i < $recordsPerType; $i++) {
+                    // Generate realistic dates (older records first)
+                    $issueDate = $this->generateRealisticIssueDate($i);
+                    $completionDate = $issueDate->copy()->addDays(rand(0, 7));
 
-                if ($daysUntilExpiry < 0) {
-                    $complianceStatus = 'expired';
-                } elseif ($daysUntilExpiry <= 30) {
-                    $complianceStatus = 'expiring_soon';
+                    // Calculate expiry date using training type validity
+                    $expiryDate = $issueDate->copy()->addMonths($trainingType->validity_months);
+
+                    // UPDATED: Use TrainingStatusService untuk generate certificate number
+                    $certificateNumber = $this->statusService->generateCertificateNumber($employee, $trainingType);
+
+                    // UPDATED: Use service untuk calculate status
+                    $status = $this->statusService->calculateStatus($expiryDate->format('Y-m-d'));
+                    $complianceStatus = $this->statusService->calculateComplianceStatus($status);
+
+                    // Random provider
+                    $provider = $providers->random();
+
+                    TrainingRecord::create([
+                        'employee_id' => $employee->id,
+                        'training_type_id' => $trainingType->id,
+                        'training_provider_id' => $provider->id, // UPDATED: Link to provider
+                        'certificate_number' => $certificateNumber,
+                        'issuer' => $provider->name, // Use provider name
+                        'issue_date' => $issueDate->format('Y-m-d'),
+                        'completion_date' => $completionDate->format('Y-m-d'),
+                        'expiry_date' => $expiryDate->format('Y-m-d'),
+                        'training_date' => $issueDate->subDays(rand(1, 5))->format('Y-m-d'), // TAMBAHAN: Training date before issue
+                        'status' => $status, // UPDATED: Use calculated status
+                        'compliance_status' => $complianceStatus, // UPDATED: Use calculated compliance
+                        'batch_number' => 'BATCH-' . $issueDate->format('Ym') . '-' . str_pad(rand(1, 99), 2, '0', STR_PAD_LEFT), // TAMBAHAN
+                        'score' => rand(1, 10) > 2 ? rand(70, 100) : null, // 80% chance of having score
+                        'passing_score' => $trainingType->category === 'Safety' ? 80 : 70, // TAMBAHAN: Different passing scores
+                        'training_hours' => rand(4, 40), // UPDATED: More realistic range
+                        'cost' => rand(500000, 8000000), // UPDATED: IDR format realistic costs
+                        'location' => $locations[array_rand($locations)], // Random realistic location
+                        'instructor_name' => rand(1, 10) > 3 ? $instructors[array_rand($instructors)] : null, // 70% chance
+                        'notes' => rand(1, 10) > 7 ? $this->generateRealisticNotes($trainingType) : null, // 30% chance
+                        'reminder_sent_at' => null, // TAMBAHAN: Will be updated by system
+                        'reminder_count' => 0, // TAMBAHAN
+                        'created_by_id' => 1, // Assuming admin user ID is 1
+                        'updated_by_id' => null,
+                        'created_at' => $issueDate,
+                        'updated_at' => $issueDate,
+                    ]);
+
+                    $recordCount++;
+
+                    // Progress indicator
+                    if ($recordCount % 25 === 0) {
+                        $this->command->line("  🔄 Created {$recordCount} training records...");
+                    }
                 }
-
-                $certificateNumber = $trainingType->code . '-' .
-                                   $issueDate->format('Ym') . '-' .
-                                   str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
-
-                TrainingRecord::create([
-                    'employee_id' => $employee->id,
-                    'training_type_id' => $trainingType->id,
-                    'certificate_number' => $certificateNumber,
-                    'issuer' => $this->getRandomIssuer($trainingType->category),
-                    'issue_date' => $issueDate,
-                    'expiry_date' => $expiryDate,
-                    'status' => 'completed', // Always completed for sample records
-                    'notes' => rand(1, 3) == 1 ? 'Training completed successfully with excellent performance.' : null,
-                    'compliance_status' => $complianceStatus,
-                    'training_provider_id' => 1, // Assuming a default provider with ID 1 exists
-                    'score' => rand(70, 100), // Add a sample score
-                    'passing_score' => 70, // Add a sample passing score
-                    'training_hours' => rand(4, 16), // Add sample training hours
-                    'cost' => rand(100, 500), // Add sample cost
-                    'location' => 'Training Center', // Add sample location
-                    'instructor_name' => 'John Doe', // Add sample instructor
-                    'completion_date' => $issueDate, // Set completion date to issue date for simplicity
-                ]);
-
-                $recordCount++;
             }
         }
 
-        $this->command->line("  ✅ Created {$recordCount} training records");
+        $this->command->line("  ✅ Successfully created {$recordCount} training records");
     }
 
-    private function getRandomIssuer($category)
+    /**
+     * Generate realistic issue dates (older records first)
+     */
+    private function generateRealisticIssueDate(int $recordIndex): Carbon
     {
-        $issuers = [
-            'Safety' => ['Gapura Safety Department', 'Red Cross Indonesia', 'Safety Institute Indonesia'],
-            'Aviation' => ['DGCA Indonesia', 'IATA Training Center', 'Aviation Safety Institute'],
-            'Security' => ['Airport Security Institute', 'Gapura Security Department', 'AVSEC Training Center'],
-            'Technical' => ['Equipment Manufacturer', 'Technical Training Institute', 'Gapura Technical Department'],
-            'Compliance' => ['Gapura Training Department', 'Compliance Institute', 'Quality Assurance Center'],
-            'Quality' => ['ISO Training Center', 'Quality Management Institute', 'Gapura QA Department'],
-            'Service' => ['Customer Service Institute', 'Gapura Training Department', 'Service Excellence Center']
-        ];
+        $baseDate = match ($recordIndex) {
+            0 => Carbon::now()->subMonths(rand(18, 36)), // First record: 1.5-3 years ago
+            1 => Carbon::now()->subMonths(rand(6, 18)),  // Second record: 6-18 months ago
+            default => Carbon::now()->subMonths(rand(1, 12)) // Recent records: 1-12 months ago
+        };
 
-        $categoryIssuers = $issuers[$category] ?? ['Gapura Training Department'];
-        return $categoryIssuers[array_rand($categoryIssuers)];
+        return $baseDate->addDays(rand(-15, 15));
     }
 
-    private function createTrainingProviders()
+    /**
+     * Generate realistic training notes
+     */
+    private function generateRealisticNotes(TrainingType $trainingType): string
     {
-        $this->command->info('🏢 Creating training providers...');
-
-        $providers = [
-            ['name' => 'Safety Institute Indonesia', 'contact_person' => 'Budi Santoso', 'phone' => '021-1234567', 'email' => 'info@safetyinstitute.co.id', 'address' => 'Jl. Keselamatan No. 10, Jakarta', 'is_active' => true],
-            ['name' => 'Aviation Training Center', 'contact_person' => 'Siti Aminah', 'phone' => '021-7654321', 'email' => 'admin@aviationtc.com', 'address' => 'Jl. Penerbangan No. 5, Tangerang', 'is_active' => true],
-            ['name' => 'Global Security Solutions', 'contact_person' => 'David Lee', 'phone' => '021-9876543', 'email' => 'contact@gss.com', 'address' => 'Jl. Keamanan No. 20, Bekasi', 'is_active' => true],
-            ['name' => 'Tech Skills Academy', 'contact_person' => 'Rina Wijaya', 'phone' => '021-2345678', 'email' => 'info@techskills.id', 'address' => 'Jl. Teknologi No. 15, Bandung', 'is_active' => true],
-            ['name' => 'Quality Management Consult', 'contact_person' => 'Faisal Rahman', 'phone' => '021-8765432', 'email' => 'office@qmc.co.id', 'address' => 'Jl. Kualitas No. 25, Surabaya', 'is_active' => true],
+        $notes = [
+            'Safety' => [
+                'Training completed with excellent safety awareness demonstration.',
+                'Passed practical safety drill with flying colors.',
+                'Demonstrated strong understanding of emergency procedures.',
+                'Requires refresher on specific safety equipment usage.'
+            ],
+            'Aviation' => [
+                'Excellent knowledge of aviation regulations and procedures.',
+                'Demonstrated proficiency in ground handling operations.',
+                'Strong performance in dangerous goods handling simulation.',
+                'Needs additional practice on specific aircraft types.'
+            ],
+            'Technical' => [
+                'Technical competency demonstrated through hands-on exercises.',
+                'Successfully completed equipment operation certification.',
+                'Strong troubleshooting skills shown during practical test.',
+                'Recommended for advanced technical training program.'
+            ],
+            'Compliance' => [
+                'Full compliance understanding achieved.',
+                'Excellent grasp of regulatory requirements.',
+                'Demonstrated commitment to quality standards.',
+                'Active participation in compliance discussions.'
+            ],
+            'default' => [
+                'Training objectives successfully achieved.',
+                'Good performance throughout the training program.',
+                'Demonstrated competency in all required areas.',
+                'Actively participated in training discussions.'
+            ]
         ];
 
-        foreach ($providers as $providerData) {
-            $provider = TrainingProvider::create($providerData);
-            $this->command->line("  ✅ {$provider->name}");
-        }
+        $categoryNotes = $notes[$trainingType->category] ?? $notes['default'];
+        return $categoryNotes[array_rand($categoryNotes)];
+    }
+
+    /**
+     * Show final seeding statistics
+     */
+    private function showFinalStatistics(): void
+    {
+        $this->command->info('📊 Final Statistics:');
+        $this->command->line('─────────────────────');
+
+        $stats = $this->statusService->getComplianceStatistics();
+
+        $this->command->table(
+            ['Metric', 'Count'],
+            [
+                ['Departments', Department::count()],
+                ['Training Types', TrainingType::count()],
+                ['Training Providers', TrainingProvider::count()],
+                ['Employees', Employee::count()],
+                ['Training Records', TrainingRecord::count()],
+                ['Active Certificates', $stats['active_certificates']],
+                ['Expiring Certificates', $stats['expiring_certificates']],
+                ['Expired Certificates', $stats['expired_certificates']],
+                ['Compliance Rate', $stats['compliance_rate'] . '%']
+            ]
+        );
+
+        $this->command->info('💡 Next Steps:');
+        $this->command->line('  • Login: admin@gapura.com / password');
+        $this->command->line('  • Visit: /training-records to see the data');
+        $this->command->line('  • Test: php artisan training:update-status --dry-run');
+        $this->command->line('  • Command: php artisan serve');
     }
 }

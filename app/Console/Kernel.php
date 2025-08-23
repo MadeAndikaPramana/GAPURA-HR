@@ -820,4 +820,12 @@ class Kernel extends ConsoleKernel
             Log::error('Failed to alert critical compliance', ['error' => $e->getMessage()]);
         }
     }
+    protected function schedule(Schedule $schedule)
+    {
+    // Update training statuses daily at 6 AM
+    $schedule->command('training:update-status')
+             ->dailyAt('06:00')
+             ->withoutOverlapping()
+             ->runInBackground();
+    }
 }

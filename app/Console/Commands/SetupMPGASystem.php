@@ -165,9 +165,9 @@ class SetupMPGASystem extends Command
     {
         $this->info('🌱 Seeding comprehensive MPGA data...');
 
-        // Check if comprehensive seeder exists
-        if (!class_exists(\Database\Seeders\MPGAComprehensiveSeeder::class)) {
-            $this->warn('   ⚠️  MPGAComprehensiveSeeder not found, using DatabaseSeeder instead');
+        // Check if realistic seeder exists
+        if (!class_exists(\Database\Seeders\MPGARealisticSeeder::class)) {
+            $this->warn('   ⚠️  MPGARealisticSeeder not found, using DatabaseSeeder instead');
 
             Artisan::call('db:seed', ['--force' => true]);
             $this->line('   ✅ Basic seeding completed');

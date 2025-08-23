@@ -4,27 +4,32 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use App\Services\TrainingStatusService;
+use App\Models\TrainingRecord;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Cache;
 
-class UpdateTrainingStatus extends Command
+class UpdateTrainingStatusCommand extends Command
 {
     /**
      * The name and signature of the console command.
      */
     protected $signature = 'training:update-status
-                          {--notify : Send notifications for expiring certificates}
-                          {--report : Generate detailed status report}
-                          {--force : Force update even if recently updated}';
+                            {--dry-run : Show what would be updated without making changes}
+                            {--days= : Number of days to check for expiring records (default: 30)}
+                            {--force : Force update even if already run today}';
 
     /**
      * The console command description.
      */
-    protected $description = 'Update training record statuses based on expiry dates and send notifications';
+    protected $description = 'Update training record statuses based on expiry dates';
 
-    protected $statusService;
+    /**
+     * Training status service instance.
+     */
+    protected TrainingStatusService $statusService;
 
+    /**
+     * Create a new command instance.
+     */
     public function __construct(TrainingStatusService $statusService)
     {
         parent::__construct();
@@ -34,271 +39,261 @@ class UpdateTrainingStatus extends Command
     /**
      * Execute the console command.
      */
-    public function handle()
+    public function handle(): int
     {
-        $this->line('');
-        $this->info('🚀 GAPURA Training Status Update');
-        $this->line('=====================================');
+        $this->info('🔄 Starting Training Status Update Process');
+        $this->info('═══════════════════════════════════════════');
 
         $startTime = microtime(true);
+        $dryRun = $this->option('dry-run');
+        $warningDays = (int) $this->option('days') ?: 30;
+        $force = $this->option('force');
+
+        if ($dryRun) {
+            $this->warn('🧪 DRY RUN MODE - No changes will be made');
+        }
+
+        // Check if already run today (unless forced)
+        if (!$force && $this->wasRunToday()) {
+            $this->warn('⚠️  Status update already run today. Use --force to override.');
+            return Command::SUCCESS;
+        }
 
         try {
-            // Check if we should run (prevent too frequent updates)
-            if (!$this->option('force') && $this->wasRecentlyUpdated()) {
-                $this->warn('⚠️  Status was updated recently. Use --force to override.');
-                return 0;
-            }
+            // Get current statistics
+            $this->showCurrentStatistics();
 
-            // Update all training statuses
-            $this->line('🔄 Updating training statuses...');
-            $updatedCount = $this->statusService->updateAllStatuses();
-
-            if ($updatedCount > 0) {
-                $this->info("✅ Training statuses updated successfully!");
-                $this->line("📊 Records updated: {$updatedCount}");
+            if ($dryRun) {
+                $this->performDryRun($warningDays);
             } else {
-                $this->line("📊 No status changes required");
+                $this->performActualUpdate();
             }
 
-            // Show current statistics
-            $this->showStatistics();
+            // Show final statistics
+            $this->newLine();
+            $this->showCurrentStatistics();
 
-            // Send notifications if requested
-            if ($this->option('notify')) {
-                $this->sendNotifications();
+            // Show records requiring attention
+            $this->showRecordsRequiringAction($warningDays);
+
+            $endTime = microtime(true);
+            $duration = round($endTime - $startTime, 2);
+
+            $this->info("✅ Process completed in {$duration} seconds");
+
+            if (!$dryRun) {
+                $this->recordExecution();
             }
 
-            // Generate report if requested
-            if ($this->option('report')) {
-                $this->generateReport();
-            }
-
-            // Log successful execution
-            $this->logExecution($updatedCount);
-
-            $executionTime = round(microtime(true) - $startTime, 2);
-            $this->line('');
-            $this->info("⏱️  Execution completed in {$executionTime}s");
-
-            return 0;
+            return Command::SUCCESS;
 
         } catch (\Exception $e) {
-            $this->error("❌ Error updating training statuses: " . $e->getMessage());
-            $this->line("🔍 Check logs for detailed error information");
-
-            Log::error('Training status update command failed', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'options' => $this->options(),
-                'timestamp' => Carbon::now()->toISOString()
-            ]);
-
-            return 1;
+            $this->error("❌ Error occurred: {$e->getMessage()}");
+            return Command::FAILURE;
         }
-    }
-
-    /**
-     * Check if status was updated recently (within 1 hour)
-     */
-    protected function wasRecentlyUpdated()
-    {
-        $cacheKey = 'training_status_last_updated';
-        $lastUpdated = Cache::get($cacheKey);
-
-        if ($lastUpdated) {
-            $lastUpdatedTime = Carbon::parse($lastUpdated);
-            return $lastUpdatedTime->diffInMinutes(Carbon::now()) < 60;
-        }
-
-        return false;
-    }
-
-    /**
-     * Log execution to cache
-     */
-    protected function logExecution($updatedCount)
-    {
-        $cacheKey = 'training_status_last_updated';
-        Cache::put($cacheKey, Carbon::now()->toISOString(), 3600); // Cache for 1 hour
-
-        // Also log execution stats
-        $statsKey = 'training_status_execution_stats';
-        $stats = Cache::get($statsKey, []);
-        $stats[] = [
-            'timestamp' => Carbon::now()->toISOString(),
-            'updated_count' => $updatedCount,
-            'options' => $this->options()
-        ];
-
-        // Keep only last 10 executions
-        $stats = array_slice($stats, -10);
-        Cache::put($statsKey, $stats, 86400); // Cache for 24 hours
     }
 
     /**
      * Show current training statistics
      */
-    protected function showStatistics()
+    private function showCurrentStatistics(): void
     {
-        $stats = $this->statusService->getDashboardStats();
+        $stats = $this->statusService->getComplianceStatistics();
 
-        $this->line('');
-        $this->line('<comment>📈 Current Training Statistics</comment>');
-        $this->line('──────────────────────────────');
+        $this->newLine();
+        $this->info('📊 Current Training Statistics');
+        $this->line('─────────────────────────────');
 
-        // Main stats
-        $this->line("👥 Total Employees: <info>{$stats['total_employees']}</info>");
-        $this->line("📚 Total Training Records: <info>{$stats['total_trainings']}</info>");
-        $this->line("✅ Active Certificates: <info>{$stats['active_certificates']}</info>");
-        $this->line("⚠️  Expiring Soon: <info>{$stats['expiring_soon']}</info>");
-        $this->line("❌ Expired: <info>{$stats['expired']}</info>");
-
-        // Compliance rate
-        if ($stats['total_trainings'] > 0) {
-            $complianceRate = round(($stats['active_certificates'] / $stats['total_trainings']) * 100, 2);
-            $indicator = $complianceRate >= 90 ? '🟢' : ($complianceRate >= 70 ? '🟡' : '🔴');
-            $this->line("📊 Overall Compliance: {$indicator} <info>{$complianceRate}%</info>");
-        }
-
-        // Department summary (top 5)
-        if ($stats['compliance_by_department']->count() > 0) {
-            $this->line('');
-            $this->line('<comment>🏢 Top Departments by Compliance</comment>');
-            $this->line('──────────────────────────────');
-
-            $topDepts = $stats['compliance_by_department']->take(5);
-            foreach ($topDepts as $dept) {
-                $rate = $dept->compliance_rate ?: 0;
-                $indicator = $rate >= 90 ? '🟢' : ($rate >= 70 ? '🟡' : '🔴');
-                $this->line("{$indicator} {$dept->department_name}: <info>{$rate}%</info>");
-            }
-        }
+        $this->table(
+            ['Status', 'Count', 'Percentage'],
+            [
+                ['Total Certificates', $stats['total_certificates'], '100%'],
+                ['✅ Active', $stats['active_certificates'], $stats['compliance_rate'] . '%'],
+                ['⚠️  Expiring Soon', $stats['expiring_certificates'], $stats['expiring_rate'] . '%'],
+                ['❌ Expired', $stats['expired_certificates'], $stats['expired_rate'] . '%'],
+            ]
+        );
     }
 
     /**
-     * Send notifications for expiring certificates
+     * Perform dry run to show what would be updated
      */
-    protected function sendNotifications()
+    private function performDryRun(int $warningDays): void
     {
-        $this->line('');
-        $this->line('<comment>📧 Processing Notifications</comment>');
-        $this->line('──────────────────────────────');
+        $this->newLine();
+        $this->info('🧪 DRY RUN - Analyzing records that would be updated');
+        $this->line('─────────────────────────────────────────────────');
 
-        // Get expiring records
-        $expiringRecords = $this->statusService->getExpiringSoon(30);
-        $criticalRecords = $this->statusService->getExpiringSoon(7);
+        $records = TrainingRecord::whereNotNull('expiry_date')->get();
+        $changes = [];
 
-        if ($expiringRecords->count() > 0) {
-            $this->line("📋 Found <info>{$expiringRecords->count()}</info> certificates expiring in 30 days");
+        foreach ($records as $record) {
+            $currentStatus = $record->status;
+            $newStatus = $this->statusService->calculateStatus($record->expiry_date);
 
-            if ($criticalRecords->count() > 0) {
-                $this->warn("⚠️  <options=bold>{$criticalRecords->count()} certificates expire within 7 days</options=bold>");
-
-                // Show critical ones
-                foreach ($criticalRecords->take(5) as $record) {
-                    $daysLeft = Carbon::parse($record->expiry_date)->diffInDays(Carbon::now());
-                    $this->line("  🔸 {$record->employee->name} - {$record->trainingType->name} (<comment>{$daysLeft} days</comment>)");
-                }
-
-                if ($criticalRecords->count() > 5) {
-                    $remaining = $criticalRecords->count() - 5;
-                    $this->line("  ... and <info>{$remaining}</info> more");
-                }
+            if ($currentStatus !== $newStatus) {
+                $changes[] = [
+                    'certificate' => $record->certificate_number,
+                    'employee' => $record->employee?->name ?? 'Unknown',
+                    'training' => $record->trainingType?->name ?? 'Unknown',
+                    'from_status' => $currentStatus,
+                    'to_status' => $newStatus,
+                    'expiry_date' => $record->expiry_date,
+                    'days_until_expiry' => Carbon::parse($record->expiry_date)->diffInDays(Carbon::today(), false)
+                ];
             }
+        }
 
-            // Send email notifications
-            $this->sendEmailNotifications($expiringRecords, $criticalRecords);
-
+        if (empty($changes)) {
+            $this->info('✨ No status changes needed - all records are up to date!');
         } else {
-            $this->line('✅ No certificates expiring in the next 30 days');
+            $this->warn("📋 Found " . count($changes) . " records that would be updated:");
+
+            $tableData = array_map(function ($change) {
+                return [
+                    substr($change['certificate'], 0, 20) . '...',
+                    substr($change['employee'], 0, 15),
+                    $change['from_status'],
+                    $change['to_status'],
+                    $change['expiry_date'],
+                    $change['days_until_expiry'] >= 0 ? $change['days_until_expiry'] . ' days' : 'Expired ' . abs($change['days_until_expiry']) . ' days ago'
+                ];
+            }, array_slice($changes, 0, 10)); // Show first 10
+
+            $this->table(
+                ['Certificate', 'Employee', 'From', 'To', 'Expiry', 'Status'],
+                $tableData
+            );
+
+            if (count($changes) > 10) {
+                $this->info("... and " . (count($changes) - 10) . " more records");
+            }
         }
     }
 
     /**
-     * Send email notifications
+     * Perform actual status update
      */
-    protected function sendEmailNotifications($expiringRecords, $criticalRecords)
+    private function performActualUpdate(): void
     {
-        // Group by department for better organization
-        $departmentGroups = $expiringRecords->groupBy(function($record) {
-            return $record->employee->department->name ?? 'No Department';
-        });
+        $this->newLine();
+        $this->info('🔄 Updating training record statuses...');
 
-        $this->line('');
-        $this->line('📨 Notification Summary:');
+        $progressBar = $this->output->createProgressBar(100);
+        $progressBar->start();
 
-        foreach ($departmentGroups as $department => $records) {
-            $this->line("  📧 {$department}: {$records->count()} notifications");
+        $results = $this->statusService->updateAllStatuses();
+
+        $progressBar->finish();
+        $this->newLine(2);
+
+        // Display results
+        $this->info('✅ Status Update Results');
+        $this->line('─────────────────────────');
+
+        $this->table(
+            ['Metric', 'Count'],
+            [
+                ['Total Processed', $results['total_processed']],
+                ['Records Updated', $results['updated_count']],
+                ['Errors', $results['errors']],
+                ['Changed to Active', $results['status_changes']['to_active']],
+                ['Changed to Expiring Soon', $results['status_changes']['to_expiring_soon']],
+                ['Changed to Expired', $results['status_changes']['to_expired']],
+            ]
+        );
+
+        if ($results['errors'] > 0) {
+            $this->warn("⚠️  {$results['errors']} errors occurred during update. Check logs for details.");
         }
-
-        // Log notification details
-        Log::info('Training expiry notifications processed', [
-            'total_expiring' => $expiringRecords->count(),
-            'critical_expiring' => $criticalRecords->count(),
-            'by_department' => $departmentGroups->map->count()->toArray(),
-            'timestamp' => Carbon::now()->toISOString()
-        ]);
-
-        $this->comment('📬 Notifications logged for HR team review');
     }
 
     /**
-     * Generate detailed report
+     * Show records requiring immediate attention
      */
-    protected function generateReport()
+    private function showRecordsRequiringAction(int $warningDays): void
     {
-        $this->line('');
-        $this->line('<comment>📋 Generating Detailed Report</comment>');
-        $this->line('──────────────────────────────');
+        $this->newLine();
+        $this->info('🚨 Records Requiring Attention');
+        $this->line('─────────────────────────────');
 
-        $report = $this->statusService->generateComplianceReport();
+        $records = $this->statusService->getRecordsRequiringAction($warningDays);
 
-        // Department compliance details
-        if (!empty($report['department_details'])) {
-            $this->line('');
-            $this->line('<comment>🏢 Department Compliance Details</comment>');
-            $this->line('──────────────────────────────');
+        if ($records['total_requiring_action'] === 0) {
+            $this->info('✨ No records require immediate attention!');
+            return;
+        }
 
-            foreach ($report['department_details'] as $dept) {
-                $rate = $dept['compliance_rate'];
-                $indicator = $rate >= 90 ? '🟢' : ($rate >= 70 ? '🟡' : '🔴');
-                $status = strtoupper($dept['status']);
+        // Show expired records
+        if ($records['expired']->isNotEmpty()) {
+            $this->error("❌ {$records['expired']->count()} EXPIRED certificates:");
 
-                $this->line("{$indicator} <info>{$dept['department']}</info>");
-                $this->line("     Employees: {$dept['total_employees']} | Certificates: {$dept['total_certificates']} | Active: {$dept['active_certificates']} | Rate: {$rate}% ({$status})");
+            $expiredData = $records['expired']->take(5)->map(function ($record) {
+                return [
+                    substr($record->certificate_number, 0, 20),
+                    substr($record->employee?->name ?? 'Unknown', 0, 15),
+                    substr($record->trainingType?->name ?? 'Unknown', 0, 20),
+                    $record->expiry_date,
+                    Carbon::parse($record->expiry_date)->diffInDays(Carbon::today(), false) . ' days ago'
+                ];
+            })->toArray();
+
+            $this->table(
+                ['Certificate', 'Employee', 'Training', 'Expired', 'Days Ago'],
+                $expiredData
+            );
+
+            if ($records['expired']->count() > 5) {
+                $this->line("... and " . ($records['expired']->count() - 5) . " more expired certificates");
             }
         }
 
-        // Training type compliance
-        if (!empty($report['training_type_details'])) {
-            $this->line('');
-            $this->line('<comment>📚 Training Type Compliance</comment>');
-            $this->line('──────────────────────────────');
+        // Show expiring records
+        if ($records['expiring_soon']->isNotEmpty()) {
+            $this->warn("⚠️  {$records['expiring_soon']->count()} certificates expiring within {$warningDays} days:");
 
-            foreach ($report['training_type_details'] as $type) {
-                $rate = $type['active_percentage'];
-                $indicator = $rate >= 80 ? '🟢' : ($rate >= 60 ? '🟡' : '🔴');
+            $expiringData = $records['expiring_soon']->take(5)->map(function ($record) {
+                return [
+                    substr($record->certificate_number, 0, 20),
+                    substr($record->employee?->name ?? 'Unknown', 0, 15),
+                    substr($record->trainingType?->name ?? 'Unknown', 0, 20),
+                    $record->expiry_date,
+                    Carbon::today()->diffInDays(Carbon::parse($record->expiry_date), false) . ' days'
+                ];
+            })->toArray();
 
-                $this->line("{$indicator} <info>{$type['training_type']}</info> ({$type['category']})");
-                $this->line("     Total: {$type['total_records']} | Active: {$type['active_count']} | Expiring: {$type['expiring_count']} | Expired: {$type['expired_count']} | Rate: {$rate}%");
+            $this->table(
+                ['Certificate', 'Employee', 'Training', 'Expires', 'In Days'],
+                $expiringData
+            );
+
+            if ($records['expiring_soon']->count() > 5) {
+                $this->line("... and " . ($records['expiring_soon']->count() - 5) . " more expiring certificates");
             }
         }
 
-        // Critical alerts
-        if (!empty($report['critical_alerts'])) {
-            $this->line('');
-            $this->line('<comment>🚨 Critical Alerts</comment>');
-            $this->line('──────────────────────────────');
+        $this->newLine();
+        $this->info("💡 Tip: Use 'php artisan training:report-expiry' for detailed expiry reports");
+    }
 
-            foreach ($report['critical_alerts'] as $alert) {
-                $icon = $alert['type'] === 'expired' ? '❌' : '⚠️';
-                $this->line("{$icon} {$alert['message']}");
-            }
-        }
+    /**
+     * Check if command was already run today
+     */
+    private function wasRunToday(): bool
+    {
+        $cacheKey = 'training_status_update_' . Carbon::today()->format('Y-m-d');
+        return cache()->has($cacheKey);
+    }
 
-        // Save report to log
-        Log::info('Training compliance report generated', $report);
-
-        $this->comment('📄 Detailed report saved to logs');
+    /**
+     * Record command execution
+     */
+    private function recordExecution(): void
+    {
+        $cacheKey = 'training_status_update_' . Carbon::today()->format('Y-m-d');
+        cache()->put($cacheKey, [
+            'executed_at' => Carbon::now(),
+            'executed_by' => 'console'
+        ], Carbon::tomorrow());
     }
 }
