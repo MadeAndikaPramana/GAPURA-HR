@@ -84,10 +84,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/training-types/bulk-action', [TrainingTypeController::class, 'bulkAction'])
         ->name('training-types.bulk-action');
 
-    // Training Record Management (FIXED - Routes moved here)
+    // Training Record Management (UPDATED - ADDED AJAX ROUTE)
     Route::resource('training-records', TrainingRecordController::class);
 
-    // ===== EMPLOYEE-CENTRIC TRAINING ROUTES (ADDED HERE) =====
+    // ===== NEW AJAX ROUTE FOR EMPLOYEE CERTIFICATES =====
+    Route::get('/training-records/employee/{employee}/certificates', [TrainingRecordController::class, 'getEmployeeCertificates'])
+        ->name('training-records.employee-certificates');
+
+    // ===== EMPLOYEE-CENTRIC TRAINING ROUTES =====
     Route::get('/training-records/employee/{employee}/edit', [TrainingRecordController::class, 'editEmployee'])
         ->name('training-records.edit-employee');
     Route::post('/training-records/employee/{employee}/update-training', [TrainingRecordController::class, 'updateEmployeeTraining'])
@@ -125,7 +129,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/notifications/unread/count', [NotificationController::class, 'getUnreadCount'])
         ->name('notifications.unread-count');
 
-    // Import/Export Operations (CLEANED - Removed misplaced routes)
+    // Import/Export Operations
     Route::prefix('import-export')->name('import-export.')->group(function () {
         Route::get('/', [ImportExportController::class, 'index'])->name('index');
 

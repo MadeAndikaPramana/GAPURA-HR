@@ -1,4 +1,5 @@
 <?php
+// app/Models/TrainingRecord.php
 
 namespace App\Models;
 
@@ -12,10 +13,14 @@ class TrainingRecord extends Model
 {
     use HasFactory;
 
+    // PERBAIKAN: Tambah field yang missing ke fillable
     protected $fillable = [
         'employee_id',
         'training_type_id',
         'training_provider_id',
+        'certificate_number',           // ✅ TAMBAH: Field ini missing
+        'issuer',                      // ✅ TAMBAH: Field ini missing
+        'issue_date',                  // ✅ TAMBAH: Field ini missing
         'batch_number',
         'training_date',
         'completion_date',
@@ -35,7 +40,9 @@ class TrainingRecord extends Model
         'updated_by_id'
     ];
 
+    // PERBAIKAN: Tambah casting untuk field baru
     protected $casts = [
+        'issue_date' => 'date',           // ✅ TAMBAH: Casting untuk issue_date
         'training_date' => 'date',
         'completion_date' => 'date',
         'expiry_date' => 'date',
@@ -55,16 +62,50 @@ class TrainingRecord extends Model
     ];
 
     /**
-     * Boot method to handle automatic calculations
+     * PERBAIKAN: Boot method to handle automatic calculations
      */
     protected static function boot()
     {
         parent::boot();
 
         static::saving(function ($trainingRecord) {
+            // PERBAIKAN: Update compliance_status berdasarkan expiry_date
             $trainingRecord->updateComplianceStatus();
-            $trainingRecord->calculateExpiryDate();
+
+            // Auto-set created_by dan updated_by
+            if (Auth::check()) {
+                if ($trainingRecord->isDirty() && !$trainingRecord->wasRecentlyCreated) {
+                    $trainingRecord->updated_by_id = Auth::id();
+                }
+                if ($trainingRecord->wasRecentlyCreated) {
+                    $trainingRecord->created_by_id = Auth::id();
+                }
+            }
         });
+    }
+
+    /**
+     * PERBAIKAN: Method untuk update compliance status
+     */
+    public function updateComplianceStatus()
+    {
+        if (!$this->expiry_date) {
+            $this->compliance_status = 'not_required';
+            return;
+        }
+
+        $daysUntilExpiry = now()->startOfDay()->diffInDays(
+            Carbon::parse($this->expiry_date)->startOfDay(),
+            false
+        );
+
+        if ($daysUntilExpiry < 0) {
+            $this->compliance_status = 'expired';
+        } elseif ($daysUntilExpiry <= 30) {
+            $this->compliance_status = 'expiring_soon';
+        } else {
+            $this->compliance_status = 'compliant';
+        }
     }
 
     /**
@@ -91,36 +132,12 @@ class TrainingRecord extends Model
         return $this->belongsTo(TrainingProvider::class);
     }
 
-    // /**
-    //  * Get all certificates for this training record
-    //  */
-    // public function certificates()
-    // {
-    //     return $this->hasMany(Certificate::class);
-    // }
-
-    // /**
-    //  * Get the latest certificate
-    //  */
-    // public function latestCertificate()
-    // {
-    //     return $this->hasOne(Certificate::class)->latest();
-    // }
-
-    // /**
-    //  * Get active certificates (not expired)
-    //  */
-    // public function activeCertificates()
-    // {
-    //     return $this->hasMany(Certificate::class)->active();
-    // }
-
     /**
      * Get the user who created this record
      */
     public function createdBy()
     {
-        return $this->belongsTo(Employee::class, 'created_by_id');
+        return $this->belongsTo(User::class, 'created_by_id');
     }
 
     /**
@@ -128,82 +145,59 @@ class TrainingRecord extends Model
      */
     public function updatedBy()
     {
-        return $this->belongsTo(Employee::class, 'updated_by_id');
+        return $this->belongsTo(User::class, 'updated_by_id');
     }
 
     /**
-     * Scope for completed training records
+     * Scope for filtering by status
      */
-    public function scopeCompleted(Builder $query)
+    public function scopeByStatus($query, $status)
     {
-        return $query->where('status', 'completed');
+        return $query->where('status', $status);
     }
 
     /**
-     * Scope for active/valid training records
+     * Scope for filtering by compliance status
      */
-    public function scopeActive(Builder $query)
+    public function scopeByComplianceStatus($query, $complianceStatus)
     {
-        return $query->where('compliance_status', 'compliant');
+        return $query->where('compliance_status', $complianceStatus);
     }
 
     /**
-     * Scope for expired training records
+     * Scope for expiring soon records
      */
-    public function scopeExpired(Builder $query)
+    public function scopeExpiringSoon($query, $days = 30)
+    {
+        return $query->where('expiry_date', '<=', now()->addDays($days))
+                    ->where('expiry_date', '>=', now())
+                    ->where('compliance_status', '!=', 'expired');
+    }
+
+    /**
+     * Scope for expired records
+     */
+    public function scopeExpired($query)
     {
         return $query->where('compliance_status', 'expired');
     }
 
     /**
-     * Scope for training records expiring soon
+     * Scope for active/compliant records
      */
-    public function scopeExpiringSoon(Builder $query, $days = 30)
+    public function scopeCompliant($query)
     {
-        return $query->where('compliance_status', 'expiring_soon')
-                    ->orWhere(function ($q) use ($days) {
-                        $q->whereNotNull('expiry_date')
-                          ->whereBetween('expiry_date', [now(), now()->addDays($days)]);
-                    });
-    }
-
-    /**
-     * Scope for mandatory training records
-     */
-    public function scopeMandatory(Builder $query)
-    {
-        return $query->whereHas('trainingType', function ($q) {
-            $q->where('is_mandatory', true);
-        });
-    }
-
-    /**
-     * Scope for training records by department
-     */
-    public function scopeByDepartment(Builder $query, $departmentId)
-    {
-        return $query->whereHas('employee', function ($q) use ($departmentId) {
-            $q->where('department_id', $departmentId);
-        });
-    }
-
-    /**
-     * Scope for training records by training category
-     */
-    public function scopeByCategory(Builder $query, $categoryId)
-    {
-        return $query->whereHas('trainingType', function ($q) use ($categoryId) {
-            $q->where('category_id', $categoryId);
-        });
+        return $query->where('compliance_status', 'compliant');
     }
 
     /**
      * Scope for search functionality
      */
-    public function scopeSearch(Builder $query, $term)
+    public function scopeSearch($query, $term)
     {
-        return $query->where(function ($q) use ($term) {
-            $q->where('batch_number', 'like', "%{$term}%")
+        return $query->where(function($q) use ($term) {
+            $q->where('certificate_number', 'like', "%{$term}%")
+              ->orWhere('issuer', 'like', "%{$term}%")
               ->orWhere('location', 'like', "%{$term}%")
               ->orWhere('instructor_name', 'like', "%{$term}%")
               ->orWhereHas('employee', function ($empQuery) use ($term) {
@@ -244,7 +238,7 @@ class TrainingRecord extends Model
     /**
      * Get compliance status color for UI
      */
-    public function getComplianceColorAttribute()
+    public function getComplianceColorAttribute(): string
     {
         return match($this->compliance_status) {
             'compliant' => 'green',
@@ -264,267 +258,22 @@ class TrainingRecord extends Model
             return null;
         }
 
-        $reminderMonths = $this->trainingType?->renewal_reminder_months ?? 3;
+        $reminderMonths = $this->trainingType?->renewal_reminder_months ?? 1;
         return Carbon::parse($this->expiry_date)->subMonths($reminderMonths);
     }
 
     /**
-     * Update compliance status based on expiry date
+     * PERBAIKAN: Method untuk generate certificate number
      */
-    public function updateComplianceStatus()
+    public static function generateCertificateNumber($trainingTypeId, $issuer = null)
     {
-        if (is_null($this->expiry_date)) {
-            $this->compliance_status = 'compliant';
-            return;
-        }
+        $trainingType = TrainingType::find($trainingTypeId);
+        $prefix = $trainingType ? strtoupper($trainingType->code) : 'TRN';
+        $issuerCode = $issuer ? strtoupper(substr(str_replace(' ', '', $issuer), 0, 3)) : 'GAP';
 
-        $now = now()->startOfDay();
-        $expiry = Carbon::parse($this->expiry_date)->startOfDay();
-        $daysUntilExpiry = $now->diffInDays($expiry, false);
+        $year = date('Y');
+        $sequence = self::where('certificate_number', 'like', "{$prefix}-{$issuerCode}-%")->count() + 1;
 
-        if ($daysUntilExpiry < 0) {
-            $this->compliance_status = 'expired';
-        } elseif ($daysUntilExpiry <= 30) {
-            $this->compliance_status = 'expiring_soon';
-        } else {
-            $this->compliance_status = 'compliant';
-        }
-    }
-
-    /**
-     * Calculate expiry date based on training type validity
-     */
-    public function calculateExpiryDate()
-    {
-        if ($this->expiry_date || !$this->completion_date || !$this->trainingType) {
-            return; // Don't override if already set
-        }
-
-        if ($this->trainingType->validity_months) {
-            $this->expiry_date = Carbon::parse($this->completion_date)
-                ->addMonths($this->trainingType->validity_months);
-        }
-    }
-
-    /**
-     * Mark training as completed
-     */
-    public function markAsCompleted($completionDate = null, $score = null)
-    {
-        $this->update([
-            'status' => 'completed',
-            'completion_date' => $completionDate ?: now(),
-            'score' => $score
-        ]);
-
-        // Auto-create certificate if training type requires it
-        // if ($this->trainingType->requires_certification && !$this->certificates()->exists()) {
-        //     app(\App\Services\CertificateService::class)->createCertificateFromTrainingRecord($this);
-        // }
-
-        return $this;
-    }
-
-    /**
-     * Check if training needs renewal
-     */
-    public function needsRenewal($days = 90)
-    {
-        if (is_null($this->expiry_date)) {
-            return false;
-        }
-
-        return $this->days_until_expiry <= $days && $this->days_until_expiry > 0;
-    }
-
-    /**
-     * Check if training is overdue
-     */
-    public function isOverdue()
-    {
-        return $this->compliance_status === 'expired';
-    }
-
-    /**
-     * Get renewal recommendation
-     */
-    public function getRenewalRecommendation()
-    {
-        if (is_null($this->expiry_date)) {
-            return null;
-        }
-
-        $daysUntilExpiry = $this->days_until_expiry;
-
-        if ($daysUntilExpiry < 0) {
-            return [
-                'urgency' => 'critical',
-                'message' => 'Training expired ' . abs($daysUntilExpiry) . ' days ago. Immediate renewal required.',
-                'action' => 'Schedule immediately'
-            ];
-        } elseif ($daysUntilExpiry <= 7) {
-            return [
-                'urgency' => 'urgent',
-                'message' => 'Training expires in ' . $daysUntilExpiry . ' days.',
-                'action' => 'Schedule this week'
-            ];
-        } elseif ($daysUntilExpiry <= 30) {
-            return [
-                'urgency' => 'high',
-                'message' => 'Training expires in ' . $daysUntilExpiry . ' days.',
-                'action' => 'Schedule within 2 weeks'
-            ];
-        } elseif ($daysUntilExpiry <= 90) {
-            return [
-                'urgency' => 'medium',
-                'message' => 'Training expires in ' . $daysUntilExpiry . ' days.',
-                'action' => 'Plan renewal'
-            ];
-        }
-
-        return null;
-    }
-
-    /**
-     * Get training cost per hour
-     */
-    public function getCostPerHourAttribute()
-    {
-        if ($this->training_hours <= 0) {
-            return 0;
-        }
-
-        return round($this->cost / $this->training_hours, 2);
-    }
-
-    /**
-     * Get training efficiency score (score per cost)
-     */
-    public function getEfficiencyScoreAttribute()
-    {
-        if ($this->cost <= 0 || is_null($this->score)) {
-            return 0;
-        }
-
-        return round($this->score / ($this->cost / 1000), 2); // Score per 1000 cost units
-    }
-
-    /**
-     * Create renewal training record
-     */
-    public function createRenewal($scheduledDate = null)
-    {
-        $renewalData = [
-            'employee_id' => $this->employee_id,
-            'training_type_id' => $this->training_type_id,
-            'training_provider_id' => $this->training_provider_id,
-            'training_date' => $scheduledDate,
-            'status' => 'registered',
-            'cost' => $this->trainingType->cost_per_person,
-            'training_hours' => $this->trainingType->duration_hours,
-            'passing_score' => $this->passing_score,
-            'notes' => 'Renewal of training record ID: ' . $this->id,
-            'created_by_id' => Auth::id()
-        ];
-
-        return static::create($renewalData);
-    }
-
-    /**
-     * Get training record statistics
-     */
-    public static function getTrainingStatistics(array $filters = [])
-    {
-        $query = static::query();
-
-        // Apply filters
-        if (isset($filters['department_id'])) {
-            $query->byDepartment($filters['department_id']);
-        }
-
-        if (isset($filters['training_type_id'])) {
-            $query->where('training_type_id', $filters['training_type_id']);
-        }
-
-        if (isset($filters['date_from'])) {
-            $query->where('completion_date', '>=', $filters['date_from']);
-        }
-
-        if (isset($filters['date_to'])) {
-            $query->where('completion_date', '<=', $filters['date_to']);
-        }
-
-        $total = $query->count();
-        $completed = $query->completed()->count();
-        $compliant = $query->active()->count();
-        $expired = $query->expired()->count();
-        $expiringSoon = $query->expiringSoon(30)->count();
-
-        return [
-            'total' => $total,
-            'completed' => $completed,
-            'compliant' => $compliant,
-            'expired' => $expired,
-            'expiring_soon' => $expiringSoon,
-            'completion_rate' => $total > 0 ? round(($completed / $total) * 100, 2) : 0,
-            'compliance_rate' => $total > 0 ? round(($compliant / $total) * 100, 2) : 0,
-            'average_score' => $query->completed()->avg('score'),
-            'total_cost' => $query->completed()->sum('cost'),
-            'total_hours' => $query->completed()->sum('training_hours')
-        ];
-    }
-
-    /**
-     * Get completion trend data
-     */
-    public static function getCompletionTrend($months = 12, array $filters = [])
-    {
-        $query = static::completed();
-
-        // Apply filters
-        if (isset($filters['department_id'])) {
-            $query->byDepartment($filters['department_id']);
-        }
-
-        if (isset($filters['training_type_id'])) {
-            $query->where('training_type_id', $filters['training_type_id']);
-        }
-
-        $endDate = now();
-        $startDate = $endDate->copy()->subMonths($months);
-
-        return $query->selectRaw('
-                DATE_FORMAT(completion_date, "%Y-%m") as month,
-                COUNT(*) as completed_count,
-                AVG(score) as average_score,
-                SUM(cost) as total_cost,
-                SUM(training_hours) as total_hours
-            ')
-            ->whereBetween('completion_date', [$startDate, $endDate])
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
-    }
-
-    /**
-     * Get training records requiring action
-     */
-    public static function getActionRequired()
-    {
-        return [
-            'expired' => static::expired()->with(['employee', 'trainingType'])->get(),
-            'expiring_soon' => static::expiringSoon(30)->with(['employee', 'trainingType'])->get(),
-            'pending_completion' => static::where('status', 'in_progress')
-                ->where('training_date', '<', now())
-                ->with(['employee', 'trainingType'])
-                ->get(),
-            'missing_certificates' => static::completed()
-                ->whereHas('trainingType', function ($q) {
-                    $q->where('requires_certification', true);
-                })
-                ->whereDoesntHave('certificates')
-                ->with(['employee', 'trainingType'])
-                ->get()
-        ];
+        return sprintf("%s-%s-%s-%04d", $prefix, $issuerCode, $year, $sequence);
     }
 }
