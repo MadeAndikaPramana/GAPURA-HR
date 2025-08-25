@@ -1,413 +1,314 @@
-// resources/js/Pages/TrainingRecords/Edit.jsx
-// Edit Training Record Form
-
+import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, useForm } from '@inertiajs/react';
-import { useState, useEffect } from 'react';
+import { Head, Link, useForm, router } from '@inertiajs/react';
 import {
-    UserIcon,
-    AcademicCapIcon,
-    DocumentTextIcon,
-    CalendarIcon,
-    CurrencyDollarIcon,
-    MapPinIcon,
-    UserGroupIcon,
-    ClipboardDocumentListIcon,
-    ExclamationTriangleIcon,
-    CheckCircleIcon,
     ArrowLeftIcon,
-    TrashIcon
+    PlusIcon,
+    TrashIcon,
+    CalendarIcon,
+    UserIcon,
+    BuildingOffice2Icon,
+    AcademicCapIcon,
+    CheckCircleIcon,
+    ExclamationTriangleIcon,
+    XCircleIcon
 } from '@heroicons/react/24/outline';
 
-export default function Edit({ auth, trainingRecord, employees, trainingTypes }) {
-    const { data, setData, put, processing, errors, reset, delete: destroy } = useForm({
-        employee_id: trainingRecord.employee_id || '',
-        training_type_id: trainingRecord.training_type_id || '',
-        certificate_number: trainingRecord.certificate_number || '',
-        issuer: trainingRecord.issuer || '',
-        issue_date: trainingRecord.issue_date || '',
-        completion_date: trainingRecord.completion_date || '',
-        expiry_date: trainingRecord.expiry_date || '',
-        score: trainingRecord.score || '',
-        training_hours: trainingRecord.training_hours || '',
-        cost: trainingRecord.cost || '',
-        location: trainingRecord.location || '',
-        instructor_name: trainingRecord.instructor_name || '',
-        notes: trainingRecord.notes || ''
+export default function EditEmployee({ auth, employee, trainingTypes, can_edit }) {
+    const [trainings, setTrainings] = useState(employee.training_records || []);
+    const [newTraining, setNewTraining] = useState({
+        training_type_id: '',
+        certificate_number: '',
+        issuer: '',
+        issue_date: '',
+        expiry_date: '',
+        score: '',
+        training_hours: '',
+        notes: ''
     });
+    const [showAddForm, setShowAddForm] = useState(false);
+    const [errors, setErrors] = useState({});
 
-    const [selectedTrainingType, setSelectedTrainingType] = useState(null);
-    const [calculatedExpiryDate, setCalculatedExpiryDate] = useState('');
-    const [deleteLoading, setDeleteLoading] = useState(false);
+    const { processing } = useForm();
 
-    // Initialize selected training type
-    useEffect(() => {
-        if (data.training_type_id) {
-            const trainingType = trainingTypes.find(t => t.id == data.training_type_id);
-            setSelectedTrainingType(trainingType);
+    const handleAddNew = () => {
+        if (!can_edit) {
+            alert('You do not have permission to edit training records.');
+            return;
         }
-    }, []);
-
-    // Update training type selection and auto-calculate expiry date
-    useEffect(() => {
-        if (data.training_type_id) {
-            const trainingType = trainingTypes.find(t => t.id == data.training_type_id);
-            setSelectedTrainingType(trainingType);
-
-            // Auto-calculate expiry date if validity_months is available and issue_date changed
-            if (trainingType?.validity_months && data.issue_date) {
-                const issueDate = new Date(data.issue_date);
-                issueDate.setMonth(issueDate.getMonth() + trainingType.validity_months);
-                const calculatedDate = issueDate.toISOString().split('T')[0];
-                setCalculatedExpiryDate(calculatedDate);
-            }
-        }
-    }, [data.training_type_id, data.issue_date]);
-
-    const submit = (e) => {
-        e.preventDefault();
-        put(route('training-records.update', trainingRecord.id));
+        setShowAddForm(true);
     };
 
-    const handleDelete = () => {
-        const confirmMessage = `Apakah Anda yakin ingin menghapus training record "${trainingRecord.certificate_number}"?\n\nTindakan ini tidak dapat dibatalkan.`;
+    const handleCancelAdd = () => {
+        setShowAddForm(false);
+        setNewTraining({
+            training_type_id: '',
+            certificate_number: '',
+            issuer: '',
+            issue_date: '',
+            expiry_date: '',
+            score: '',
+            training_hours: '',
+            notes: ''
+        });
+        setErrors({});
+    };
 
-        if (window.confirm(confirmMessage)) {
-            setDeleteLoading(true);
-            destroy(route('training-records.destroy', trainingRecord.id), {
-                onFinish: () => setDeleteLoading(false)
+    const handleSaveNew = () => {
+        const formData = new FormData();
+        formData.append('action', 'create');
+        Object.keys(newTraining).forEach(key => {
+            if (newTraining[key]) {
+                formData.append(key, newTraining[key]);
+            }
+        });
+
+        router.post(route('training-records.update-employee-training', employee.id), formData, {
+            onSuccess: () => {
+                setShowAddForm(false);
+                setNewTraining({
+                    training_type_id: '',
+                    certificate_number: '',
+                    issuer: '',
+                    issue_date: '',
+                    expiry_date: '',
+                    score: '',
+                    training_hours: '',
+                    notes: ''
+                });
+                setErrors({});
+            },
+            onError: (errors) => {
+                setErrors(errors);
+            }
+        });
+    };
+
+    const handleEdit = (recordId) => {
+        router.get(route('training-records.edit', recordId));
+    };
+
+    const handleDelete = (recordId) => {
+        if (!can_edit) {
+            alert('You do not have permission to delete training records.');
+            return;
+        }
+
+        if (confirm('Are you sure you want to delete this training record?')) {
+            const formData = new FormData();
+            formData.append('action', 'delete');
+            formData.append('record_id', recordId);
+
+            router.post(route('training-records.update-employee-training', employee.id), formData, {
+                onSuccess: () => {
+                    // Records will be refreshed automatically
+                }
             });
         }
     };
 
-    const getSelectedEmployee = () => {
-        return employees.find(e => e.id == data.employee_id);
+    const getStatusBadge = (status) => {
+        const variants = {
+            compliant: 'bg-green-100 text-green-800 border-green-200',
+            expiring_soon: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            expired: 'bg-red-100 text-red-800 border-red-200'
+        };
+
+        const icons = {
+            compliant: <CheckCircleIcon className="w-3 h-3" />,
+            expiring_soon: <ExclamationTriangleIcon className="w-3 h-3" />,
+            expired: <XCircleIcon className="w-3 h-3" />
+        };
+
+        const labels = {
+            compliant: 'Active',
+            expiring_soon: 'Expiring Soon',
+            expired: 'Expired'
+        };
+
+        return (
+            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${variants[status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                {icons[status]}
+                {labels[status] || 'Unknown'}
+            </span>
+        );
     };
 
-    const calculateDaysUntilExpiry = (expiryDate) => {
-        if (!expiryDate) return null;
-        const today = new Date();
-        const expiry = new Date(expiryDate);
-        const diffTime = expiry - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays;
-    };
+    // Auto-calculate expiry date when training type or issue date changes
+    const handleNewTrainingChange = (field, value) => {
+        const updatedTraining = { ...newTraining, [field]: value };
 
-    const getStatusInfo = () => {
-        const daysUntilExpiry = calculateDaysUntilExpiry(data.expiry_date);
-
-        if (!daysUntilExpiry) return null;
-
-        if (daysUntilExpiry < 0) {
-            return {
-                text: `Expired ${Math.abs(daysUntilExpiry)} days ago`,
-                classes: 'text-red-600 bg-red-50 border-red-200'
-            };
-        } else if (daysUntilExpiry <= 30) {
-            return {
-                text: `Expires in ${daysUntilExpiry} days`,
-                classes: 'text-yellow-600 bg-yellow-50 border-yellow-200'
-            };
-        } else {
-            return {
-                text: `Expires in ${daysUntilExpiry} days`,
-                classes: 'text-green-600 bg-green-50 border-green-200'
-            };
+        if ((field === 'training_type_id' || field === 'issue_date') &&
+            updatedTraining.training_type_id && updatedTraining.issue_date) {
+            const trainingType = trainingTypes.find(t => t.id == updatedTraining.training_type_id);
+            if (trainingType && trainingType.validity_months) {
+                const issueDate = new Date(updatedTraining.issue_date);
+                const expiryDate = new Date(issueDate);
+                expiryDate.setMonth(expiryDate.getMonth() + trainingType.validity_months);
+                updatedTraining.expiry_date = expiryDate.toISOString().split('T')[0];
+            }
         }
+
+        setNewTraining(updatedTraining);
     };
 
-    const statusInfo = getStatusInfo();
+    const formatDate = (dateString) => {
+        return new Date(dateString).toLocaleDateString('id-ID', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
 
     return (
-        <AuthenticatedLayout
-            user={auth.user}
-            header={
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <Link
-                            href={route('training-records.show', trainingRecord.id)}
-                            className="text-gray-600 hover:text-gray-900"
-                        >
-                            <ArrowLeftIcon className="w-5 h-5" />
-                        </Link>
-                        <div>
-                            <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                                Edit Training Record
-                            </h2>
-                            <p className="text-sm text-gray-600 mt-1">
-                                Certificate #{trainingRecord.certificate_number}
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex space-x-2">
-                        <Link
-                            href={route('training-records.show', trainingRecord.id)}
-                            className="inline-flex items-center px-4 py-2 bg-gray-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700"
-                        >
-                            View Details
-                        </Link>
-                        <button
-                            onClick={handleDelete}
-                            disabled={deleteLoading}
-                            className="inline-flex items-center px-4 py-2 bg-red-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {deleteLoading ? (
-                                <>
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                                    Deleting...
-                                </>
-                            ) : (
-                                <>
-                                    <TrashIcon className="w-4 h-4 mr-2" />
-                                    Delete
-                                </>
-                            )}
-                        </button>
-                    </div>
-                </div>
-            }
-        >
-            <Head title={`Edit - ${trainingRecord.certificate_number}`} />
+        <AuthenticatedLayout user={auth.user}>
+            <Head title={`Manage Training - ${employee.name}`} />
 
-            <div className="py-12">
-                <div className="max-w-4xl mx-auto sm:px-6 lg:px-8">
+            <div className="py-6">
+                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
 
-                    {/* Status Banner */}
-                    {statusInfo && (
-                        <div className="mb-6">
-                            <div className={`px-4 py-3 rounded-lg border ${statusInfo.classes}`}>
-                                <div className="flex items-center">
-                                    <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
-                                    <span className="font-medium">{statusInfo.text}</span>
+                    {/* Header */}
+                    <div className="bg-white shadow-sm sm:rounded-lg mb-6">
+                        <div className="p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <Link
+                                    href={route('training-records.index')}
+                                    className="inline-flex items-center text-sm text-gray-500 hover:text-gray-700"
+                                >
+                                    <ArrowLeftIcon className="w-4 h-4 mr-1" />
+                                    Back to Training Records
+                                </Link>
+
+                                {can_edit && (
+                                    <button
+                                        onClick={handleAddNew}
+                                        disabled={showAddForm}
+                                        className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition ease-in-out duration-150 disabled:opacity-50"
+                                    >
+                                        <PlusIcon className="w-4 h-4 mr-2" />
+                                        Add Training Record
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Employee Info */}
+                            <div className="bg-gray-50 rounded-lg p-4">
+                                <div className="flex items-center space-x-4">
+                                    <div className="flex-shrink-0">
+                                        <div className="w-12 h-12 rounded-full bg-gray-300 flex items-center justify-center">
+                                            <UserIcon className="w-8 h-8 text-gray-600" />
+                                        </div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <h1 className="text-xl font-bold text-gray-900">{employee.name}</h1>
+                                        <div className="flex items-center space-x-6 mt-2 text-sm text-gray-600">
+                                            <span className="flex items-center">
+                                                <UserIcon className="w-4 h-4 mr-1" />
+                                                ID: {employee.employee_id}
+                                            </span>
+                                            <span className="flex items-center">
+                                                <BuildingOffice2Icon className="w-4 h-4 mr-1" />
+                                                {employee.department?.name || 'No Department'}
+                                            </span>
+                                            <span className="flex items-center">
+                                                <AcademicCapIcon className="w-4 h-4 mr-1" />
+                                                {trainings.length} Training Records
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    )}
+                    </div>
 
-                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                        <form onSubmit={submit} className="p-6 space-y-8">
-
-                            {/* Basic Information */}
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                                    <ClipboardDocumentListIcon className="w-5 h-5 mr-2 text-green-600" />
-                                    Basic Information
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Employee Selection */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Employee *
-                                        </label>
-                                        <select
-                                            value={data.employee_id}
-                                            onChange={e => setData('employee_id', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.employee_id ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
-                                        >
-                                            <option value="">Select Employee</option>
-                                            {employees?.map((employee) => (
-                                                <option key={employee.id} value={employee.id}>
-                                                    {employee.name} ({employee.employee_id})
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.employee_id && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.employee_id}</p>
-                                        )}
-
-                                        {/* Employee Info Preview */}
-                                        {getSelectedEmployee() && (
-                                            <div className="mt-2 p-3 bg-blue-50 rounded-md border border-blue-200">
-                                                <div className="flex items-center text-sm text-blue-700">
-                                                    <UserIcon className="w-4 h-4 mr-2" />
-                                                    <span className="font-medium">{getSelectedEmployee().name}</span>
-                                                    <span className="mx-2">•</span>
-                                                    <span>ID: {getSelectedEmployee().employee_id}</span>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Training Type Selection */}
+                    {/* Add New Training Form */}
+                    {showAddForm && (
+                        <div className="bg-white shadow-sm sm:rounded-lg mb-6">
+                            <div className="p-6 border-b border-gray-200">
+                                <h3 className="text-lg font-medium text-gray-900">Add New Training Record</h3>
+                            </div>
+                            <div className="p-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Training Type *
                                         </label>
                                         <select
-                                            value={data.training_type_id}
-                                            onChange={e => setData('training_type_id', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.training_type_id ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
+                                            value={newTraining.training_type_id}
+                                            onChange={(e) => handleNewTrainingChange('training_type_id', e.target.value)}
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         >
                                             <option value="">Select Training Type</option>
-                                            {trainingTypes?.map((type) => (
+                                            {trainingTypes.map(type => (
                                                 <option key={type.id} value={type.id}>
-                                                    {type.name} ({type.validity_months}m validity)
+                                                    {type.name} ({type.category})
                                                 </option>
                                             ))}
                                         </select>
                                         {errors.training_type_id && (
                                             <p className="mt-1 text-sm text-red-600">{errors.training_type_id}</p>
                                         )}
-
-                                        {/* Training Type Info Preview */}
-                                        {selectedTrainingType && (
-                                            <div className="mt-2 p-3 bg-green-50 rounded-md border border-green-200">
-                                                <div className="flex items-center text-sm text-green-700">
-                                                    <AcademicCapIcon className="w-4 h-4 mr-2" />
-                                                    <span className="font-medium">{selectedTrainingType.name}</span>
-                                                    <span className="mx-2">•</span>
-                                                    <span>Valid for {selectedTrainingType.validity_months} months</span>
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
-                                </div>
-                            </div>
 
-                            {/* Certificate Information */}
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                                    <DocumentTextIcon className="w-5 h-5 mr-2 text-blue-600" />
-                                    Certificate Information
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Certificate Number */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Certificate Number *
+                                            Certificate Number
                                         </label>
                                         <input
                                             type="text"
-                                            value={data.certificate_number}
-                                            onChange={e => setData('certificate_number', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.certificate_number ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
+                                            value={newTraining.certificate_number}
+                                            onChange={(e) => handleNewTrainingChange('certificate_number', e.target.value)}
+                                            placeholder="Auto-generated if empty"
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
-                                        {errors.certificate_number && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.certificate_number}</p>
-                                        )}
                                     </div>
 
-                                    {/* Issuer */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Issuer *
                                         </label>
                                         <input
                                             type="text"
-                                            value={data.issuer}
-                                            onChange={e => setData('issuer', e.target.value)}
-                                            placeholder="Training provider or issuing authority"
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.issuer ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
+                                            value={newTraining.issuer}
+                                            onChange={(e) => handleNewTrainingChange('issuer', e.target.value)}
+                                            placeholder="Training provider"
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
                                         {errors.issuer && (
                                             <p className="mt-1 text-sm text-red-600">{errors.issuer}</p>
                                         )}
                                     </div>
-                                </div>
-                            </div>
 
-                            {/* Dates */}
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                                    <CalendarIcon className="w-5 h-5 mr-2 text-purple-600" />
-                                    Important Dates
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    {/* Issue Date */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Issue Date *
                                         </label>
                                         <input
                                             type="date"
-                                            value={data.issue_date}
-                                            onChange={e => setData('issue_date', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.issue_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
+                                            value={newTraining.issue_date}
+                                            onChange={(e) => handleNewTrainingChange('issue_date', e.target.value)}
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
                                         {errors.issue_date && (
                                             <p className="mt-1 text-sm text-red-600">{errors.issue_date}</p>
                                         )}
                                     </div>
 
-                                    {/* Completion Date */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Completion Date
+                                            Expiry Date *
                                         </label>
                                         <input
                                             type="date"
-                                            value={data.completion_date}
-                                            onChange={e => setData('completion_date', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.completion_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        />
-                                        {errors.completion_date && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.completion_date}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Expiry Date */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Expiry Date
-                                            {calculatedExpiryDate && data.expiry_date !== calculatedExpiryDate && (
-                                                <span className="text-xs text-blue-600 ml-1">
-                                                    (Suggested: {calculatedExpiryDate})
-                                                </span>
-                                            )}
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={data.expiry_date}
-                                            onChange={e => setData('expiry_date', e.target.value)}
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.expiry_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            value={newTraining.expiry_date}
+                                            onChange={(e) => handleNewTrainingChange('expiry_date', e.target.value)}
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
                                         {errors.expiry_date && (
                                             <p className="mt-1 text-sm text-red-600">{errors.expiry_date}</p>
                                         )}
-                                        {calculatedExpiryDate && data.expiry_date !== calculatedExpiryDate && (
-                                            <button
-                                                type="button"
-                                                onClick={() => setData('expiry_date', calculatedExpiryDate)}
-                                                className="mt-1 text-xs text-blue-600 hover:text-blue-500"
-                                            >
-                                                Use suggested date
-                                            </button>
-                                        )}
                                     </div>
-                                </div>
-                            </div>
 
-                            {/* Additional Information */}
-                            <div>
-                                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                                    <UserGroupIcon className="w-5 h-5 mr-2 text-indigo-600" />
-                                    Additional Information
-                                </h3>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Score */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Score (0-100)
@@ -417,156 +318,154 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes })
                                             min="0"
                                             max="100"
                                             step="0.1"
-                                            value={data.score}
-                                            onChange={e => setData('score', e.target.value)}
-                                            placeholder="e.g., 85.5"
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.score ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            value={newTraining.score}
+                                            onChange={(e) => handleNewTrainingChange('score', e.target.value)}
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
-                                        {errors.score && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.score}</p>
-                                        )}
                                     </div>
 
-                                    {/* Training Hours */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Training Hours
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="0"
-                                            step="0.5"
-                                            value={data.training_hours}
-                                            onChange={e => setData('training_hours', e.target.value)}
-                                            placeholder="e.g., 16"
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.training_hours ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        />
-                                        {errors.training_hours && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.training_hours}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Cost */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Cost (IDR)
-                                        </label>
-                                        <div className="relative">
-                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                                <CurrencyDollarIcon className="h-4 w-4 text-gray-400" />
-                                            </div>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                step="1000"
-                                                value={data.cost}
-                                                onChange={e => setData('cost', e.target.value)}
-                                                placeholder="e.g., 2500000"
-                                                className={`block w-full pl-10 py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                    errors.cost ? 'border-red-300' : 'border-gray-300'
-                                                }`}
-                                            />
-                                        </div>
-                                        {errors.cost && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.cost}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Location */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Location
-                                        </label>
-                                        <div className="relative">
-                                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                                <MapPinIcon className="h-4 w-4 text-gray-400" />
-                                            </div>
-                                            <input
-                                                type="text"
-                                                value={data.location}
-                                                onChange={e => setData('location', e.target.value)}
-                                                placeholder="Training location"
-                                                className={`block w-full pl-10 py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                    errors.location ? 'border-red-300' : 'border-gray-300'
-                                                }`}
-                                            />
-                                        </div>
-                                        {errors.location && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.location}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Instructor Name */}
-                                    <div className="md:col-span-2">
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Instructor Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={data.instructor_name}
-                                            onChange={e => setData('instructor_name', e.target.value)}
-                                            placeholder="Name of the training instructor"
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.instructor_name ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        />
-                                        {errors.instructor_name && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.instructor_name}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Notes */}
                                     <div className="md:col-span-2">
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
                                             Notes
                                         </label>
                                         <textarea
-                                            rows={3}
-                                            value={data.notes}
-                                            onChange={e => setData('notes', e.target.value)}
-                                            placeholder="Additional notes about the training..."
-                                            className={`block w-full py-2 px-3 border rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500 ${
-                                                errors.notes ? 'border-red-300' : 'border-gray-300'
-                                            }`}
+                                            rows={2}
+                                            value={newTraining.notes}
+                                            onChange={(e) => handleNewTrainingChange('notes', e.target.value)}
+                                            placeholder="Additional notes..."
+                                            className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
-                                        {errors.notes && (
-                                            <p className="mt-1 text-sm text-red-600">{errors.notes}</p>
-                                        )}
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Form Actions */}
-                            <div className="flex items-center justify-end space-x-4 pt-6 border-t border-gray-200">
-                                <Link
-                                    href={route('training-records.show', trainingRecord.id)}
-                                    className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                                >
-                                    Cancel
-                                </Link>
-                                <button
-                                    type="submit"
-                                    disabled={processing}
-                                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {processing ? (
-                                        <>
-                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                                            Updating...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <CheckCircleIcon className="w-4 h-4 mr-2" />
-                                            Update Training Record
-                                        </>
-                                    )}
-                                </button>
+                                <div className="flex justify-end space-x-3 mt-6">
+                                    <button
+                                        onClick={handleCancelAdd}
+                                        className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveNew}
+                                        disabled={processing || !newTraining.training_type_id || !newTraining.issuer}
+                                        className="px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
+                                    >
+                                        {processing ? 'Saving...' : 'Save Training Record'}
+                                    </button>
+                                </div>
                             </div>
-                        </form>
+                        </div>
+                    )}
+
+                    {/* Training Records List */}
+                    <div className="bg-white shadow-sm sm:rounded-lg">
+                        <div className="p-6 border-b border-gray-200">
+                            <h3 className="text-lg font-medium text-gray-900">Training Records</h3>
+                        </div>
+
+                        {trainings.length === 0 ? (
+                            <div className="text-center py-12">
+                                <AcademicCapIcon className="mx-auto w-12 h-12 text-gray-400" />
+                                <p className="mt-2 text-sm text-gray-500">No training records found</p>
+                                {can_edit && (
+                                    <p className="text-xs text-gray-400">Click "Add Training Record" to create the first record</p>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Training Type
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Certificate
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Issuer
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Dates
+                                            </th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Status
+                                            </th>
+                                            <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {trainings.map((training) => (
+                                            <tr key={training.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div>
+                                                        <div className="text-sm font-medium text-gray-900">
+                                                            {training.training_type?.name || 'Unknown Training'}
+                                                        </div>
+                                                        <div className="text-sm text-gray-500">
+                                                            {training.training_type?.category || 'No Category'}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="text-sm font-mono text-gray-900">
+                                                        {training.certificate_number || 'No Certificate'}
+                                                    </div>
+                                                    {training.score && (
+                                                        <div className="text-sm text-gray-500">
+                                                            Score: {training.score}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="text-sm text-gray-900">
+                                                        {training.issuer}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="text-sm text-gray-900">
+                                                        <div className="flex items-center">
+                                                            <CalendarIcon className="w-4 h-4 mr-1 text-gray-400" />
+                                                            {formatDate(training.issue_date)}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500 mt-1">
+                                                            Expires: {formatDate(training.expiry_date)}
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {getStatusBadge(training.compliance_status)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                    <div className="flex items-center justify-center space-x-2">
+                                                        <button
+                                                            onClick={() => handleEdit(training.id)}
+                                                            className="text-blue-600 hover:text-blue-900"
+                                                            title="Edit Training Record"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                            </svg>
+                                                        </button>
+                                                        {can_edit && (
+                                                            <button
+                                                                onClick={() => handleDelete(training.id)}
+                                                                className="text-red-600 hover:text-red-900"
+                                                                title="Delete Training Record"
+                                                            >
+                                                                <TrashIcon className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

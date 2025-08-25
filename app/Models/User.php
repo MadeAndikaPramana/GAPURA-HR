@@ -56,13 +56,21 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsTo(Employee::class, 'employee_id', 'employee_id');
     }
 
-    /**
-     * Check if user has a specific role
-     */
-    public function hasRole($role)
-    {
-        return $this->role === $role;
+    public function hasRole($roles): bool
+{
+    // Jika user belum punya kolom role, return true untuk backward compatibility
+    if (!isset($this->role)) {
+        return true;
     }
+
+    // Jika roles adalah array
+    if (is_array($roles)) {
+        return in_array($this->role, $roles);
+    }
+
+    // Jika roles adalah string tunggal
+    return $this->role === $roles;
+}
 
     /**
      * Check if user is admin or super admin
@@ -87,4 +95,46 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $query->where('is_active', true);
     }
+
+    /**
+ * Check if user can edit training records
+ */
+public function canEditTrainingRecords(): bool
+{
+    return $this->hasRole(['admin', 'hr_staff', 'super_admin']);
+}
+
+/**
+ * Check if user can view training records
+ */
+public function canViewTrainingRecords(): bool
+{
+    // Semua user yang sudah login bisa view
+    return true;
+}
+
+/**
+ * Check if user can manage training types
+ */
+public function canManageTrainingTypes(): bool
+{
+    return $this->hasRole(['admin', 'super_admin']);
+}
+
+/**
+ * Get user role display name
+ */
+public function getRoleDisplayNameAttribute(): string
+{
+    $roles = [
+        'admin' => 'Administrator',
+        'hr_staff' => 'HR Staff',
+        'super_admin' => 'Super Administrator',
+        'user' => 'User',
+        'employee' => 'Employee'
+    ];
+
+    return $roles[$this->role ?? 'user'] ?? 'User';
+}
+
 }

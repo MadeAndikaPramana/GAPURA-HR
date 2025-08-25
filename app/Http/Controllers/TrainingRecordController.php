@@ -5,16 +5,15 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\Employee;
-use App\Models\Department;
 use App\Models\TrainingType;
 use App\Models\TrainingRecord;
+use App\Models\Department;
 use App\Services\TrainingStatusService;
 use App\Imports\TrainingRecordsImport;
 use App\Exports\TrainingRecordsExport;
 use Maatwebsite\Excel\Facades\Excel;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class TrainingRecordController extends Controller
@@ -27,70 +26,95 @@ class TrainingRecordController extends Controller
     }
 
     /**
-     * Display a listing of training records with advanced filtering
+     * Display employee-centric training records view (ENHANCED)
      */
     public function index(Request $request)
     {
-        $query = TrainingRecord::with(['employee.department', 'trainingType']);
+        // Query semua employee dengan training records mereka
+        $query = Employee::with([
+            'department',
+            'trainingRecords' => function($query) {
+                $query->with('trainingType');
+            }
+        ])->where('status', 'active');
 
-        // Search functionality
-        if ($request->has('search') && $request->search) {
-            $query->where(function($q) use ($request) {
-                $q->where('certificate_number', 'like', '%' . $request->search . '%')
-                  ->orWhere('issuer', 'like', '%' . $request->search . '%')
-                  ->orWhereHas('employee', function($eq) use ($request) {
-                      $eq->where('name', 'like', '%' . $request->search . '%')
-                         ->orWhere('employee_id', 'like', '%' . $request->search . '%');
-                  })
-                  ->orWhereHas('trainingType', function($tq) use ($request) {
-                      $tq->where('name', 'like', '%' . $request->search . '%');
-                  });
+        // Apply filters
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_id', 'like', "%{$search}%");
             });
-        }
-
-        // Advanced filters
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        if ($request->filled('employee')) {
-            $query->where('employee_id', $request->employee);
-        }
-
-        if ($request->filled('training_type')) {
-            $query->where('training_type_id', $request->training_type);
         }
 
         if ($request->filled('department')) {
-            $query->whereHas('employee', function($q) use ($request) {
-                $q->where('department_id', $request->department);
-            });
+            $query->where('department_id', $request->department);
         }
 
-        if ($request->filled('date_from')) {
-            $query->where('issue_date', '>=', $request->date_from);
+        if ($request->filled('status')) {
+            $status = $request->status;
+            if ($status === 'no_training') {
+                $query->doesntHave('trainingRecords');
+            } else {
+                // Map status ke compliance_status
+                $complianceStatusMap = [
+                    'active' => 'compliant',
+                    'expiring_soon' => 'expiring_soon',
+                    'expired' => 'expired'
+                ];
+
+                if (isset($complianceStatusMap[$status])) {
+                    $query->whereHas('trainingRecords', function($q) use ($complianceStatusMap, $status) {
+                        $q->where('compliance_status', $complianceStatusMap[$status]);
+                    });
+                }
+            }
         }
 
-        if ($request->filled('date_to')) {
-            $query->where('issue_date', '<=', $request->date_to);
-        }
+        $employees = $query->paginate(20)->withQueryString();
 
-        $trainingRecords = $query->orderBy('created_at', 'desc')->paginate(15);
+        // Transform data untuk menambah training summary per employee
+        $employees->getCollection()->transform(function($employee) {
+            // Group training by type untuk mendapat latest record per type
+            $trainingsByType = $employee->trainingRecords->groupBy('training_type_id');
 
-        // Statistics
+            $trainingSummary = [];
+            foreach($trainingsByType as $typeId => $records) {
+                $latestRecord = $records->sortByDesc('issue_date')->first();
+                $trainingSummary[] = [
+                    'training_type' => $latestRecord->trainingType,
+                    'status' => $latestRecord->compliance_status, // Use compliance_status
+                    'expiry_date' => $latestRecord->expiry_date,
+                    'issue_date' => $latestRecord->issue_date,
+                    'total_records' => $records->count()
+                ];
+            }
+
+            $employee->training_summary = $trainingSummary;
+            $employee->training_stats = [
+                'total' => count($trainingSummary),
+                'active' => collect($trainingSummary)->where('status', 'compliant')->count(),
+                'expiring' => collect($trainingSummary)->where('status', 'expiring_soon')->count(),
+                'expired' => collect($trainingSummary)->where('status', 'expired')->count()
+            ];
+
+            return $employee;
+        });
+
+        // Get overall stats - update untuk menggunakan compliance_status
         $stats = [
+            'total_employees' => Employee::where('status', 'active')->count(),
+            'employees_with_training' => Employee::has('trainingRecords')->count(),
             'total_certificates' => TrainingRecord::count(),
-            'active_certificates' => TrainingRecord::where('status', 'active')->count(),
-            'expiring_certificates' => TrainingRecord::where('status', 'expiring_soon')->count(),
-            'expired_certificates' => TrainingRecord::where('status', 'expired')->count(),
+            'active_certificates' => TrainingRecord::where('compliance_status', 'compliant')->count(),
+            'expiring_certificates' => TrainingRecord::where('compliance_status', 'expiring_soon')->count(),
+            'expired_certificates' => TrainingRecord::where('compliance_status', 'expired')->count(),
         ];
 
         return Inertia::render('TrainingRecords/Index', [
-            'trainingRecords' => $trainingRecords,
-            'employees' => Employee::all(['id', 'name', 'employee_id']),
-            'trainingTypes' => TrainingType::where('is_active', true)->get(['id', 'name']),
+            'employees' => $employees,
             'departments' => Department::all(['id', 'name']),
-            'filters' => $request->only(['search', 'status', 'training_type', 'employee', 'department', 'date_from', 'date_to']),
+            'filters' => $request->only(['search', 'department', 'status']),
             'stats' => $stats
         ]);
     }
@@ -101,16 +125,13 @@ class TrainingRecordController extends Controller
     public function create()
     {
         return Inertia::render('TrainingRecords/Create', [
-            'employees' => Employee::where('status', 'active')
-                ->with('department')
-                ->get(['id', 'name', 'employee_id']),
-            'trainingTypes' => TrainingType::where('is_active', true)
-                ->get(['id', 'name', 'code', 'validity_months']),
+            'employees' => Employee::where('status', 'active')->get(['id', 'name', 'employee_id']),
+            'trainingTypes' => TrainingType::where('is_active', true)->get(['id', 'name', 'validity_months']),
         ]);
     }
 
     /**
-     * Store a newly created training record
+     * Store a newly created training record (COMPLETELY FIXED)
      */
     public function store(Request $request)
     {
@@ -120,82 +141,109 @@ class TrainingRecordController extends Controller
             'issuer' => 'required|string|max:50',
             'issue_date' => 'required|date',
             'auto_generate_certificate' => 'boolean',
-            'certificate_number' => 'required_if:auto_generate_certificate,false|string|max:100|unique:training_records',
-            'completion_date' => 'nullable|date|after_or_equal:issue_date',
-            'expiry_date' => 'nullable|date|after:issue_date',
+            'certificate_number' => 'nullable|string|max:100',
+            'notes' => 'nullable|string',
             'score' => 'nullable|numeric|min:0|max:100',
-            'training_hours' => 'nullable|numeric|min:0',
-            'cost' => 'nullable|numeric|min:0',
-            'location' => 'nullable|string|max:255',
-            'instructor_name' => 'nullable|string|max:255',
-            'notes' => 'nullable|string'
+            'training_hours' => 'nullable|numeric|min:0'
         ]);
 
-        try {
-            DB::beginTransaction();
+        // ========= CRITICAL: Certificate Number Generation =========
+        $certificateNumber = null;
 
-            $employee = Employee::findOrFail($request->employee_id);
-            $trainingType = TrainingType::findOrFail($request->training_type_id);
-
-            // Auto-generate certificate number if requested
-            $certificateNumber = $request->auto_generate_certificate
-                ? $this->generateCertificateNumber($employee, $trainingType)
-                : $request->certificate_number;
-
-            // Calculate expiry date if not provided
-            $expiryDate = $request->expiry_date;
-            if (!$expiryDate && $trainingType->validity_months) {
-                $issueDate = Carbon::parse($request->issue_date);
-                $expiryDate = $issueDate->addMonths($trainingType->validity_months)->format('Y-m-d');
+        if ($request->boolean('auto_generate_certificate') || empty($request->certificate_number)) {
+            // Use TrainingStatusService to generate certificate number
+            try {
+                $certificateNumber = $this->statusService->generateCertificateNumber(
+                    $request->training_type_id,
+                    $request->issuer
+                );
+            } catch (\Exception $e) {
+                // Fallback generation if service fails
+                $certificateNumber = $this->generateCertificateNumberSafe(
+                    $request->training_type_id,
+                    $request->issuer
+                );
             }
+        } else {
+            $certificateNumber = $request->certificate_number;
+        }
 
-            // Determine initial status
-            $status = $this->calculateStatus($expiryDate);
+        // ========= CRITICAL: Ensure certificate_number is not null =========
+        if (empty($certificateNumber)) {
+            return back()->withErrors([
+                'certificate_number' => 'Certificate number generation failed. Please provide manually.'
+            ])->withInput();
+        }
 
+        // Check for uniqueness
+        $existingRecord = TrainingRecord::where('certificate_number', $certificateNumber)->first();
+        if ($existingRecord) {
+            // Auto-increment if duplicate
+            $counter = 1;
+            $originalCertNumber = $certificateNumber;
+            while (TrainingRecord::where('certificate_number', $certificateNumber)->exists()) {
+                $certificateNumber = $originalCertNumber . '-' . $counter;
+                $counter++;
+            }
+        }
+
+        // ========= Calculate Expiry Date =========
+        try {
+            $expiryDate = $this->statusService->calculateExpiryDate(
+                $request->issue_date,
+                $request->training_type_id
+            );
+        } catch (\Exception $e) {
+            // Fallback calculation
+            $trainingType = TrainingType::find($request->training_type_id);
+            $issueDate = Carbon::parse($request->issue_date);
+            $expiryDate = $issueDate->copy()->addMonths($trainingType->validity_months ?? 12);
+        }
+
+        // ========= Calculate Compliance Status =========
+        $complianceStatus = $this->calculateComplianceStatusSafe($request->issue_date, $expiryDate);
+
+        // ========= FIXED: Create with ALL required fields =========
+        try {
             $trainingRecord = TrainingRecord::create([
+                // REQUIRED FIELDS
                 'employee_id' => $request->employee_id,
                 'training_type_id' => $request->training_type_id,
-                'certificate_number' => $certificateNumber,
+                'certificate_number' => $certificateNumber, // ← CRITICAL: Must be included
                 'issuer' => $request->issuer,
                 'issue_date' => $request->issue_date,
-                'completion_date' => $request->completion_date,
+
+                // DATABASE SCHEMA FIELDS (set with defaults)
+                'training_date' => $request->issue_date, // Same as issue_date
+                'completion_date' => $request->issue_date, // Same as issue_date
                 'expiry_date' => $expiryDate,
-                'status' => $status,
-                'compliance_status' => $status === 'expired' ? 'expired' : 'compliant',
+                'status' => 'completed', // Fixed enum value
+                'compliance_status' => $complianceStatus, // Fixed enum value
+
+                // OPTIONAL FIELDS
                 'score' => $request->score,
                 'training_hours' => $request->training_hours,
-                'cost' => $request->cost,
-                'location' => $request->location,
-                'instructor_name' => $request->instructor_name,
                 'notes' => $request->notes,
-                'created_by_id' => Auth::id(),
-            ]);
 
-            DB::commit();
-
-            Log::info('Training record created', [
-                'id' => $trainingRecord->id,
-                'certificate_number' => $certificateNumber,
-                'employee' => $employee->name,
-                'training_type' => $trainingType->name,
-                'user_id' => Auth::id()
+                // AUDIT FIELDS (if exist)
+                'created_by_id' => auth()->id(),
+                'updated_by_id' => auth()->id()
             ]);
 
             return redirect()->route('training-records.index')
-                ->with('success', "Training record berhasil ditambahkan untuk {$employee->name}.");
+                ->with('success', 'Training record berhasil ditambahkan dengan certificate: ' . $certificateNumber);
 
         } catch (\Exception $e) {
-            DB::rollback();
-
-            Log::error('Training record creation failed', [
+            // Log error for debugging
+            Log::error('Training Record Creation Failed', [
                 'error' => $e->getMessage(),
-                'user_id' => Auth::id(),
-                'request_data' => $request->all()
+                'data' => $request->all(),
+                'certificate_number' => $certificateNumber
             ]);
 
-            return redirect()->back()
-                ->withErrors(['error' => 'Gagal menambahkan training record: ' . $e->getMessage()])
-                ->withInput();
+            return back()->withErrors([
+                'general' => 'Failed to create training record: ' . $e->getMessage()
+            ])->withInput();
         }
     }
 
@@ -206,17 +254,12 @@ class TrainingRecordController extends Controller
     {
         $trainingRecord->load(['employee.department', 'trainingType']);
 
-        // Get related training records for same employee
-        $relatedRecords = TrainingRecord::where('employee_id', $trainingRecord->employee_id)
-            ->where('id', '!=', $trainingRecord->id)
-            ->with('trainingType')
-            ->orderBy('issue_date', 'desc')
-            ->limit(10)
-            ->get();
-
         return Inertia::render('TrainingRecords/Show', [
             'trainingRecord' => $trainingRecord,
-            'relatedRecords' => $relatedRecords
+            'relatedRecords' => TrainingRecord::where('employee_id', $trainingRecord->employee_id)
+                ->where('id', '!=', $trainingRecord->id)
+                ->with('trainingType')
+                ->get()
         ]);
     }
 
@@ -225,88 +268,52 @@ class TrainingRecordController extends Controller
      */
     public function edit(TrainingRecord $trainingRecord)
     {
-        $trainingRecord->load(['employee', 'trainingType']);
-
         return Inertia::render('TrainingRecords/Edit', [
             'trainingRecord' => $trainingRecord,
-            'employees' => Employee::where('status', 'active')
-                ->with('department')
-                ->get(['id', 'name', 'employee_id']),
-            'trainingTypes' => TrainingType::where('is_active', true)
-                ->get(['id', 'name', 'code', 'validity_months']),
+            'employees' => Employee::where('status', 'active')->get(['id', 'name', 'employee_id']),
+            'trainingTypes' => TrainingType::where('is_active', true)->get(['id', 'name', 'validity_months']),
         ]);
     }
 
     /**
-     * Update the specified training record
+     * Update the specified training record (FIXED)
      */
     public function update(Request $request, TrainingRecord $trainingRecord)
     {
         $request->validate([
             'employee_id' => 'required|exists:employees,id',
             'training_type_id' => 'required|exists:training_types,id',
-            'certificate_number' => 'required|string|max:100|unique:training_records,certificate_number,' . $trainingRecord->id,
+            'certificate_number' => 'required|string|unique:training_records,certificate_number,' .
+                $trainingRecord->id,
             'issuer' => 'required|string|max:50',
             'issue_date' => 'required|date',
-            'completion_date' => 'nullable|date|after_or_equal:issue_date',
-            'expiry_date' => 'nullable|date|after:issue_date',
+            'expiry_date' => 'required|date|after:issue_date',
+            'notes' => 'nullable|string',
             'score' => 'nullable|numeric|min:0|max:100',
-            'training_hours' => 'nullable|numeric|min:0',
-            'cost' => 'nullable|numeric|min:0',
-            'location' => 'nullable|string|max:255',
-            'instructor_name' => 'nullable|string|max:255',
-            'notes' => 'nullable|string'
+            'training_hours' => 'nullable|numeric|min:0'
         ]);
 
-        try {
-            DB::beginTransaction();
+        // Calculate compliance status berdasarkan expiry date
+        $complianceStatus = $this->calculateComplianceStatusSafe($request->issue_date, $request->expiry_date);
 
-            // Recalculate status based on expiry date
-            $status = $this->calculateStatus($request->expiry_date);
+        $trainingRecord->update([
+            'employee_id' => $request->employee_id,
+            'training_type_id' => $request->training_type_id,
+            'certificate_number' => $request->certificate_number,
+            'issuer' => $request->issuer,
+            'issue_date' => $request->issue_date,
+            'training_date' => $request->issue_date,
+            'completion_date' => $request->issue_date,
+            'expiry_date' => $request->expiry_date,
+            'compliance_status' => $complianceStatus,
+            'score' => $request->score,
+            'training_hours' => $request->training_hours,
+            'notes' => $request->notes,
+            'updated_by_id' => auth()->id()
+        ]);
 
-            $trainingRecord->update([
-                'employee_id' => $request->employee_id,
-                'training_type_id' => $request->training_type_id,
-                'certificate_number' => $request->certificate_number,
-                'issuer' => $request->issuer,
-                'issue_date' => $request->issue_date,
-                'completion_date' => $request->completion_date,
-                'expiry_date' => $request->expiry_date,
-                'status' => $status,
-                'compliance_status' => $status === 'expired' ? 'expired' : 'compliant',
-                'score' => $request->score,
-                'training_hours' => $request->training_hours,
-                'cost' => $request->cost,
-                'location' => $request->location,
-                'instructor_name' => $request->instructor_name,
-                'notes' => $request->notes,
-                'updated_by_id' => Auth::id(),
-            ]);
-
-            DB::commit();
-
-            Log::info('Training record updated', [
-                'id' => $trainingRecord->id,
-                'certificate_number' => $request->certificate_number,
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->route('training-records.index')
-                ->with('success', 'Training record berhasil diupdate.');
-
-        } catch (\Exception $e) {
-            DB::rollback();
-
-            Log::error('Training record update failed', [
-                'id' => $trainingRecord->id,
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->back()
-                ->withErrors(['error' => 'Gagal mengupdate training record: ' . $e->getMessage()])
-                ->withInput();
-        }
+        return redirect()->route('training-records.index')
+            ->with('success', 'Training record berhasil diupdate.');
     }
 
     /**
@@ -314,241 +321,296 @@ class TrainingRecordController extends Controller
      */
     public function destroy(TrainingRecord $trainingRecord)
     {
+        $trainingRecord->delete();
+        return redirect()->route('training-records.index')
+            ->with('success', 'Training record berhasil dihapus.');
+    }
+
+    /**
+     * NEW: Edit employee training records
+     */
+    public function editEmployee(Request $request, Employee $employee)
+    {
+        $employee->load([
+            'department',
+            'trainingRecords' => function($query) {
+                $query->with('trainingType')->orderBy('issue_date', 'desc');
+            }
+        ]);
+
+        $trainingTypes = TrainingType::where('is_active', true)
+            ->orderBy('category')
+            ->orderBy('name')
+            ->get(['id', 'name', 'category', 'validity_months']);
+
+        return Inertia::render('TrainingRecords/EditEmployee', [
+            'employee' => $employee,
+            'trainingTypes' => $trainingTypes,
+            'can_edit' => $this->userCanEditTraining()
+        ]);
+    }
+
+    /**
+     * NEW: Update employee training records
+     */
+    public function updateEmployeeTraining(Request $request, Employee $employee)
+    {
+        if (!$this->userCanEditTraining()) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'action' => 'required|in:create,update,delete',
+            'training_type_id' => 'required_if:action,create,update|exists:training_types,id',
+            'certificate_number' => 'nullable|string|max:100',
+            'issuer' => 'required_if:action,create,update|string|max:255',
+            'issue_date' => 'required_if:action,create,update|date',
+            'expiry_date' => 'required_if:action,create,update|date|after:issue_date',
+            'score' => 'nullable|numeric|min:0|max:100',
+            'training_hours' => 'nullable|integer|min:1',
+            'notes' => 'nullable|string|max:1000',
+            'record_id' => 'nullable|exists:training_records,id'
+        ]);
+
         try {
-            DB::beginTransaction();
+            DB::transaction(function() use ($request, $employee) {
+                $action = $request->action;
 
-            $certificateNumber = $trainingRecord->certificate_number;
-            $employeeName = $trainingRecord->employee->name ?? 'Unknown';
+                if ($action === 'create') {
+                    $this->createTrainingRecordForEmployee($employee, $request->all());
+                } elseif ($action === 'update' && $request->record_id) {
+                    $this->updateTrainingRecordForEmployee($request->record_id, $request->all());
+                } elseif ($action === 'delete' && $request->record_id) {
+                    $this->deleteTrainingRecordForEmployee($request->record_id);
+                }
+            });
 
-            $trainingRecord->delete();
-
-            DB::commit();
-
-            Log::info('Training record deleted', [
-                'certificate_number' => $certificateNumber,
-                'employee' => $employeeName,
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->route('training-records.index')
-                ->with('success', "Training record {$certificateNumber} berhasil dihapus.");
+            return back()->with('success', 'Training record berhasil diupdate.');
 
         } catch (\Exception $e) {
-            DB::rollback();
-
-            Log::error('Training record deletion failed', [
-                'id' => $trainingRecord->id,
+            Log::error('Employee Training Update Failed', [
                 'error' => $e->getMessage(),
-                'user_id' => Auth::id()
+                'employee_id' => $employee->id,
+                'action' => $request->action,
+                'data' => $request->all()
             ]);
 
-            return redirect()->route('training-records.index')
-                ->with('error', 'Gagal menghapus training record: ' . $e->getMessage());
+            return back()->withErrors([
+                'general' => 'Failed to update training record: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Handle bulk actions on training records
+     * FIXED: Create training record for employee
+     */
+    private function createTrainingRecordForEmployee(Employee $employee, array $data)
+    {
+        // Generate certificate number
+        $certificateNumber = !empty($data['certificate_number'])
+            ? $data['certificate_number']
+            : $this->generateCertificateNumberSafe($data['training_type_id'], $data['issuer']);
+
+        // Ensure certificate number is unique
+        $counter = 1;
+        $originalCertNumber = $certificateNumber;
+        while (TrainingRecord::where('certificate_number', $certificateNumber)->exists()) {
+            $certificateNumber = $originalCertNumber . '-' . $counter;
+            $counter++;
+        }
+
+        // Calculate compliance status
+        $complianceStatus = $this->calculateComplianceStatusSafe($data['issue_date'], $data['expiry_date']);
+
+        // ===== CRITICAL: Include certificate_number in create =====
+        TrainingRecord::create([
+            'employee_id' => $employee->id,
+            'training_type_id' => $data['training_type_id'],
+            'certificate_number' => $certificateNumber, // ← MUST BE INCLUDED
+            'issuer' => $data['issuer'],
+            'issue_date' => $data['issue_date'],
+            'training_date' => $data['issue_date'],
+            'completion_date' => $data['issue_date'],
+            'expiry_date' => $data['expiry_date'],
+            'status' => 'completed',
+            'compliance_status' => $complianceStatus,
+            'score' => !empty($data['score']) ? $data['score'] : null,
+            'training_hours' => !empty($data['training_hours']) ? $data['training_hours'] : null,
+            'notes' => !empty($data['notes']) ? $data['notes'] : null,
+            'created_by_id' => auth()->id(),
+            'updated_by_id' => auth()->id()
+        ]);
+    }
+
+    /**
+     * FIXED: Update training record for employee
+     */
+    private function updateTrainingRecordForEmployee($recordId, array $data)
+    {
+        $record = TrainingRecord::findOrFail($recordId);
+        $complianceStatus = $this->calculateComplianceStatusSafe($data['issue_date'], $data['expiry_date']);
+
+        $record->update([
+            'training_type_id' => $data['training_type_id'],
+            'certificate_number' => $data['certificate_number'] ?: $record->certificate_number,
+            'issuer' => $data['issuer'],
+            'issue_date' => $data['issue_date'],
+            'training_date' => $data['issue_date'],
+            'completion_date' => $data['issue_date'],
+            'expiry_date' => $data['expiry_date'],
+            'compliance_status' => $complianceStatus,
+            'score' => !empty($data['score']) ? $data['score'] : null,
+            'training_hours' => !empty($data['training_hours']) ? $data['training_hours'] : null,
+            'notes' => !empty($data['notes']) ? $data['notes'] : null,
+            'updated_by_id' => auth()->id()
+        ]);
+    }
+
+    /**
+     * Delete training record for employee
+     */
+    private function deleteTrainingRecordForEmployee($recordId)
+    {
+        TrainingRecord::findOrFail($recordId)->delete();
+    }
+
+    /**
+     * Safe certificate number generation with fallback
+     */
+    private function generateCertificateNumberSafe($trainingTypeId, $issuer)
+    {
+        try {
+            // Try using service first
+            return $this->statusService->generateCertificateNumber($trainingTypeId, $issuer);
+        } catch (\Exception $e) {
+            // Fallback generation
+            $trainingType = TrainingType::find($trainingTypeId);
+            $prefix = strtoupper(substr($trainingType->code ?? 'TRN', 0, 3));
+            $year = date('Y');
+            $month = date('m');
+
+            // Get next sequence number
+            $lastRecord = TrainingRecord::where('certificate_number', 'like', "{$prefix}-{$year}{$month}-%")
+                ->orderBy('certificate_number', 'desc')
+                ->first();
+
+            $sequence = 1;
+            if ($lastRecord) {
+                $parts = explode('-', $lastRecord->certificate_number);
+                if (count($parts) >= 3) {
+                    $lastSequence = (int) end($parts);
+                    $sequence = $lastSequence + 1;
+                }
+            }
+
+            return sprintf('%s-%s%s-%03d', $prefix, $year, $month, $sequence);
+        }
+    }
+
+    /**
+     * Safe compliance status calculation with fallback
+     */
+    private function calculateComplianceStatusSafe($issueDate, $expiryDate)
+    {
+        if (!$expiryDate) {
+            return 'not_required';
+        }
+
+        try {
+            $now = now();
+            $expiry = Carbon::parse($expiryDate);
+
+            if ($expiry->isPast()) {
+                return 'expired';
+            } elseif ($expiry->diffInDays($now) <= 30) {
+                return 'expiring_soon';
+            }
+
+            return 'compliant';
+        } catch (\Exception $e) {
+            return 'compliant'; // Default fallback
+        }
+    }
+
+    /**
+     * Check if user can edit training records
+     */
+    private function userCanEditTraining(): bool
+    {
+        $user = auth()->user();
+
+        // Check if user has hasRole method
+        if (method_exists($user, 'hasRole')) {
+            return $user->hasRole(['admin', 'hr_staff']);
+        }
+
+        // Fallback: check role field directly
+        if (isset($user->role)) {
+            return in_array($user->role, ['admin', 'hr_staff']);
+        }
+
+        // Default: allow all authenticated users
+        return true;
+    }
+
+    /**
+     * Bulk import training records (EXISTING)
+     */
+    public function handleBulkImport(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,xls,csv|max:10240',
+        ]);
+
+        try {
+            Excel::import(new TrainingRecordsImport, $request->file('file'));
+
+            // Update statuses after import
+            $this->statusService->updateAllStatuses();
+
+            return redirect()->route('training-records.index')
+                ->with('success', 'Training records berhasil diimport.');
+        } catch (\Exception $e) {
+            return redirect()->route('training-records.index')
+                ->with('error', 'Error importing data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Bulk export training records (EXISTING)
+     */
+    public function bulkExport(Request $request)
+    {
+        $fileName = 'training_records_' . date('Y-m-d_H-i-s') . '.xlsx';
+        return Excel::download(new TrainingRecordsExport($request->all()), $fileName);
+    }
+
+    /**
+     * Bulk operations for training records (EXISTING)
      */
     public function bulkAction(Request $request)
     {
         $request->validate([
-            'action' => 'required|in:delete,export,mark_expired,mark_active',
-            'training_record_ids' => 'required|array',
-            'training_record_ids.*' => 'exists:training_records,id'
+            'action' => 'required|in:delete,export',
+            'record_ids' => 'required|array',
+            'record_ids.*' => 'exists:training_records,id'
         ]);
 
-        $trainingRecords = TrainingRecord::whereIn('id', $request->training_record_ids);
+        switch ($request->action) {
+            case 'delete':
+                TrainingRecord::whereIn('id', $request->record_ids)->delete();
+                $message = 'Training records berhasil dihapus.';
+                return redirect()->route('training-records.index')
+                    ->with('success', $message);
+                break;
 
-        try {
-            DB::beginTransaction();
-
-            switch ($request->action) {
-                case 'delete':
-                    $count = $trainingRecords->count();
-                    $trainingRecords->delete();
-                    $message = "Successfully deleted {$count} training records.";
-                    break;
-
-                case 'mark_expired':
-                    $count = $trainingRecords->update([
-                        'status' => 'expired',
-                        'compliance_status' => 'expired'
-                    ]);
-                    $message = "Successfully marked {$count} records as expired.";
-                    break;
-
-                case 'mark_active':
-                    $count = $trainingRecords->update([
-                        'status' => 'active',
-                        'compliance_status' => 'compliant'
-                    ]);
-                    $message = "Successfully marked {$count} records as active.";
-                    break;
-
-                case 'export':
-                    $filters = ['training_record_ids' => $request->training_record_ids];
-                    return Excel::download(new TrainingRecordsExport($filters), 'selected_training_records.xlsx');
-            }
-
-            DB::commit();
-
-            Log::info('Bulk action completed', [
-                'action' => $request->action,
-                'record_count' => count($request->training_record_ids),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->back()->with('success', $message);
-
-        } catch (\Exception $e) {
-            DB::rollback();
-
-            Log::error('Bulk action failed', [
-                'action' => $request->action,
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->back()
-                ->with('error', 'Bulk action failed: ' . $e->getMessage());
+            case 'export':
+                $fileName = 'selected_training_records_' . date('Y-m-d_H-i-s') . '.xlsx';
+                return Excel::download(
+                    new TrainingRecordsExport(['record_ids' => $request->record_ids]),
+                    $fileName
+                );
+                break;
         }
-    }
-
-    /**
-     * Mark training record as completed
-     */
-    public function markCompleted(TrainingRecord $trainingRecord)
-    {
-        try {
-            $trainingRecord->update([
-                'status' => 'completed',
-                'completion_date' => now()->format('Y-m-d'),
-                'updated_by_id' => Auth::id(),
-            ]);
-
-            // Update compliance status
-            $status = $this->calculateStatus($trainingRecord->expiry_date);
-            $trainingRecord->update(['status' => $status]);
-
-            return redirect()->back()
-                ->with('success', 'Training record marked as completed.');
-
-        } catch (\Exception $e) {
-            Log::error('Mark completed failed', [
-                'id' => $trainingRecord->id,
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->back()
-                ->with('error', 'Failed to mark as completed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Create renewal for training record
-     */
-    public function createRenewal(TrainingRecord $trainingRecord)
-    {
-        try {
-            DB::beginTransaction();
-
-            $renewalData = [
-                'employee_id' => $trainingRecord->employee_id,
-                'training_type_id' => $trainingRecord->training_type_id,
-                'certificate_number' => $this->generateCertificateNumber(
-                    $trainingRecord->employee,
-                    $trainingRecord->trainingType
-                ),
-                'issuer' => $trainingRecord->issuer,
-                'issue_date' => now()->format('Y-m-d'),
-                'status' => 'active',
-                'compliance_status' => 'compliant',
-                'created_by_id' => Auth::id(),
-            ];
-
-            // Calculate expiry date
-            if ($trainingRecord->trainingType->validity_months) {
-                $renewalData['expiry_date'] = now()
-                    ->addMonths($trainingRecord->trainingType->validity_months)
-                    ->format('Y-m-d');
-            }
-
-            $renewal = TrainingRecord::create($renewalData);
-
-            DB::commit();
-
-            Log::info('Renewal created', [
-                'original_id' => $trainingRecord->id,
-                'renewal_id' => $renewal->id,
-                'certificate_number' => $renewal->certificate_number,
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->route('training-records.show', $renewal)
-                ->with('success', 'Renewal training record created successfully.');
-
-        } catch (\Exception $e) {
-            DB::rollback();
-
-            Log::error('Renewal creation failed', [
-                'original_id' => $trainingRecord->id,
-                'error' => $e->getMessage(),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->back()
-                ->with('error', 'Failed to create renewal: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Calculate training record status based on expiry date
-     */
-    private function calculateStatus($expiryDate)
-    {
-        if (!$expiryDate) {
-            return 'active';
-        }
-
-        $today = Carbon::today();
-        $expiry = Carbon::parse($expiryDate);
-        $daysUntilExpiry = $today->diffInDays($expiry, false);
-
-        if ($daysUntilExpiry < 0) {
-            return 'expired';
-        } elseif ($daysUntilExpiry <= 30) {
-            return 'expiring_soon';
-        } else {
-            return 'active';
-        }
-    }
-
-    /**
-     * Generate certificate number
-     */
-    private function generateCertificateNumber($employee, $trainingType)
-    {
-        $departmentCode = $employee->department?->code ?? 'GEN';
-        $trainingCode = $trainingType->code ?? 'TRN';
-        $year = date('Y');
-        $month = date('m');
-
-        // Get next sequence number
-        $lastRecord = TrainingRecord::where('certificate_number', 'like', "{$departmentCode}-{$trainingCode}-{$year}{$month}-%")
-            ->orderBy('certificate_number', 'desc')
-            ->first();
-
-        $sequence = 1;
-        if ($lastRecord) {
-            $parts = explode('-', $lastRecord->certificate_number);
-            if (count($parts) >= 4) {
-                $lastSequence = (int) end($parts);
-                $sequence = $lastSequence + 1;
-            }
-        }
-
-        return sprintf('%s-%s-%s%s-%03d', $departmentCode, $trainingCode, $year, $month, $sequence);
     }
 }

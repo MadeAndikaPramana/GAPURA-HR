@@ -163,7 +163,7 @@ class SetupMPGASystem extends Command
 
     private function runSeedersOnly()
     {
-        $this->info('🌱 Seeding comprehensive MPGA data...');
+        $this->info('🌱 Seeding realistic MPGA data...');
 
         // Check if realistic seeder exists
         if (!class_exists(\Database\Seeders\MPGARealisticSeeder::class)) {

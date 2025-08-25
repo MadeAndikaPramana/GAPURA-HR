@@ -1,327 +1,200 @@
-// resources/js/Pages/TrainingRecords/Index.jsx
-// Comprehensive Training Records Management
-
+import React, { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router } from '@inertiajs/react';
-import { useState } from 'react';
 import {
-    PlusIcon,
     MagnifyingGlassIcon,
     FunnelIcon,
-    ArrowDownTrayIcon,
-    ArrowUpTrayIcon,
-    UserIcon,
-    AcademicCapIcon,
-    ClipboardDocumentListIcon,
-    ExclamationTriangleIcon,
-    EyeIcon,
     PencilIcon,
-    TrashIcon,
+    UserIcon,
+    BuildingOffice2Icon, // ← FIXED: Correct icon name
+    ChartBarIcon,
     CheckCircleIcon,
+    ExclamationTriangleIcon,
     XCircleIcon,
-    CalendarIcon,
-    BuildingOfficeIcon,
-    ChevronDownIcon
+    EyeIcon,
+    DocumentCheckIcon
 } from '@heroicons/react/24/outline';
 
-export default function Index({
-    auth,
-    trainingRecords,
-    employees,
-    trainingTypes,
-    departments,
-    filters,
-    stats,
-    flash
-}) {
-    // Safe stats dengan fallback
-    const safeStats = stats || {
-        total_certificates: 0,
-        active_certificates: 0,
-        expiring_certificates: 0,
-        expired_certificates: 0
-    };
-
-    const [searchTerm, setSearchTerm] = useState(filters?.search || '');
-    const [selectedStatus, setSelectedStatus] = useState(filters?.status || '');
-    const [selectedEmployee, setSelectedEmployee] = useState(filters?.employee || '');
-    const [selectedTrainingType, setSelectedTrainingType] = useState(filters?.training_type || '');
-    const [selectedDepartment, setSelectedDepartment] = useState(filters?.department || '');
-    const [selectedDateFrom, setSelectedDateFrom] = useState(filters?.date_from || '');
-    const [selectedDateTo, setSelectedDateTo] = useState(filters?.date_to || '');
-    const [deleteLoading, setDeleteLoading] = useState(null);
-    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+export default function Index({ auth, employees, departments, filters, stats }) {
+    const [searchTerm, setSearchTerm] = useState(filters.search || '');
+    const [selectedDepartment, setSelectedDepartment] = useState(filters.department || '');
+    const [selectedStatus, setSelectedStatus] = useState(filters.status || '');
 
     const handleSearch = () => {
         router.get(route('training-records.index'), {
             search: searchTerm,
-            status: selectedStatus,
-            employee: selectedEmployee,
-            training_type: selectedTrainingType,
             department: selectedDepartment,
-            date_from: selectedDateFrom,
-            date_to: selectedDateTo,
-        }, {
-            preserveState: true,
-            replace: true,
-        });
+            status: selectedStatus
+        }, { preserveState: true, preserveScroll: true });
     };
 
     const clearFilters = () => {
         setSearchTerm('');
-        setSelectedStatus('');
-        setSelectedEmployee('');
-        setSelectedTrainingType('');
         setSelectedDepartment('');
-        setSelectedDateFrom('');
-        setSelectedDateTo('');
-        router.get(route('training-records.index'));
+        setSelectedStatus('');
+        router.get(route('training-records.index'), {}, { preserveState: true });
     };
 
-    const exportRecords = () => {
-        const params = new URLSearchParams({
-            search: searchTerm,
-            status: selectedStatus,
-            employee: selectedEmployee,
-            training_type: selectedTrainingType,
-            department: selectedDepartment,
-            date_from: selectedDateFrom,
-            date_to: selectedDateTo,
-        });
-
-        window.location.href = route('import-export.training-records.export') + '?' + params.toString();
-    };
-
-    const deleteRecord = async (id, certificateNumber) => {
-        const confirmMessage = `Apakah Anda yakin ingin menghapus training record "${certificateNumber}"?\n\nTindakan ini tidak dapat dibatalkan.`;
-
-        if (!window.confirm(confirmMessage)) {
-            return;
-        }
-
-        try {
-            setDeleteLoading(id);
-            router.delete(route('training-records.destroy', id), {
-                preserveScroll: true,
-                onSuccess: () => setDeleteLoading(null),
-                onError: (errors) => {
-                    setDeleteLoading(null);
-                    const errorMessage = typeof errors === 'object'
-                        ? Object.values(errors).join(', ')
-                        : errors || 'Terjadi kesalahan tidak diketahui';
-                    alert(`Gagal menghapus training record: ${errorMessage}`);
-                },
-                onFinish: () => setDeleteLoading(null)
-            });
-        } catch (error) {
-            console.error('Delete error:', error);
-            setDeleteLoading(null);
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            handleSearch();
         }
     };
 
     const getStatusBadge = (status) => {
-        const statusConfig = {
-            'active': {
-                icon: CheckCircleIcon,
-                classes: 'bg-green-100 text-green-800',
-                label: 'Active'
-            },
-            'expiring_soon': {
-                icon: ExclamationTriangleIcon,
-                classes: 'bg-yellow-100 text-yellow-800',
-                label: 'Expiring Soon'
-            },
-            'expired': {
-                icon: XCircleIcon,
-                classes: 'bg-red-100 text-red-800',
-                label: 'Expired'
-            },
-            'completed': {
-                icon: CheckCircleIcon,
-                classes: 'bg-blue-100 text-blue-800',
-                label: 'Completed'
-            }
+        const variants = {
+            compliant: 'bg-green-100 text-green-800 border-green-200',
+            expiring_soon: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+            expired: 'bg-red-100 text-red-800 border-red-200'
         };
 
-        const config = statusConfig[status] || statusConfig['completed'];
-        const Icon = config.icon;
+        const icons = {
+            compliant: <CheckCircleIcon className="w-3 h-3" />,
+            expiring_soon: <ExclamationTriangleIcon className="w-3 h-3" />,
+            expired: <XCircleIcon className="w-3 h-3" />
+        };
+
+        const labels = {
+            compliant: 'Active',
+            expiring_soon: 'Expiring',
+            expired: 'Expired'
+        };
 
         return (
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.classes}`}>
-                <Icon className="w-3 h-3 mr-1" />
-                {config.label}
+            <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${variants[status] || 'bg-gray-100 text-gray-800 border-gray-200'}`}>
+                {icons[status]}
+                {labels[status] || 'Unknown'}
             </span>
         );
     };
 
-    const formatDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('id-ID');
+    const renderTrainingTypes = (trainingSummary) => {
+        if (!trainingSummary || trainingSummary.length === 0) {
+            return (
+                <div className="text-gray-500 text-sm italic">
+                    No training records
+                </div>
+            );
+        }
+
+        return (
+            <div className="space-y-1">
+                {trainingSummary.slice(0, 2).map((training, index) => (
+                    <div key={index} className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700 truncate max-w-[200px]" title={training.training_type.name}>
+                            {training.training_type.name}
+                        </span>
+                        {getStatusBadge(training.status)}
+                    </div>
+                ))}
+                {trainingSummary.length > 2 && (
+                    <div className="text-xs text-gray-500 font-medium">
+                        +{trainingSummary.length - 2} more training types
+                    </div>
+                )}
+            </div>
+        );
     };
 
-    const calculateDaysUntilExpiry = (expiryDate) => {
-        if (!expiryDate) return null;
-        const today = new Date();
-        const expiry = new Date(expiryDate);
-        const diffTime = expiry - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays;
+    const getComplianceColor = (stats) => {
+        const rate = stats.total > 0 ? (stats.active / stats.total * 100) : 0;
+        if (rate >= 90) return 'text-green-600';
+        if (rate >= 70) return 'text-yellow-600';
+        return 'text-red-600';
     };
 
     return (
-        <AuthenticatedLayout
-            user={auth.user}
-            header={
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                            Training Records
-                        </h2>
-                        <p className="text-sm text-gray-600 mt-1">
-                            Kelola data sertifikat dan pelatihan karyawan GAPURA
-                        </p>
-                    </div>
-                    <div className="flex space-x-2">
-                        <button
-                            onClick={exportRecords}
-                            className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                        >
-                            <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                            Export
-                        </button>
-                        <Link
-                            href={route('import-export.training-records.import')}
-                            className="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        >
-                            <ArrowUpTrayIcon className="w-4 h-4 mr-2" />
-                            Import
-                        </Link>
-                        <Link
-                            href={route('training-records.create')}
-                            className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:bg-green-700 active:bg-green-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                        >
-                            <PlusIcon className="w-4 h-4 mr-2" />
-                            Add Record
-                        </Link>
-                    </div>
-                </div>
-            }
-        >
-            <Head title="Training Records" />
+        <AuthenticatedLayout user={auth.user}>
+            <Head title="Training Records Management" />
 
-            <div className="py-12">
+            <div className="py-6">
                 <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-
-                    {/* Flash Messages */}
-                    {flash?.success && (
-                        <div className="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
-                            <div className="flex">
-                                <CheckCircleIcon className="w-5 h-5 mr-2" />
-                                {flash.success}
-                            </div>
-                        </div>
-                    )}
-
-                    {flash?.error && (
-                        <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                            <div className="flex">
-                                <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
-                                {flash.error}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Statistics Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                        <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-blue-500 text-white">
-                                    <ClipboardDocumentListIcon className="w-6 h-6" />
+                    {/* Header */}
+                    <div className="bg-white shadow-sm sm:rounded-lg mb-6">
+                        <div className="p-6 border-b border-gray-200">
+                            <div className="flex justify-between items-start">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-900">Training Records Management</h2>
+                                    <p className="mt-1 text-sm text-gray-600">
+                                        Kelola data sertifikat dan pelatihan karyawan GAPURA
+                                    </p>
                                 </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-blue-600">Total Certificates</p>
-                                    <p className="text-2xl font-bold text-blue-900">{safeStats.total_certificates}</p>
+                                <div className="flex space-x-3">
+                                    <Link
+                                        href={route('training-records.create')}
+                                        className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                                    >
+                                        <DocumentCheckIcon className="w-4 h-4 mr-2" />
+                                        Add Training Record
+                                    </Link>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="bg-green-50 rounded-lg p-6 border border-green-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-green-500 text-white">
-                                    <CheckCircleIcon className="w-6 h-6" />
+                        {/* Statistics Cards */}
+                        <div className="p-6 bg-gray-50">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                    <div className="flex items-center">
+                                        <UserIcon className="w-8 h-8 text-blue-500" />
+                                        <div className="ml-4">
+                                            <p className="text-sm font-medium text-gray-600">Total Employees</p>
+                                            <p className="text-2xl font-bold text-gray-900">{stats.total_employees}</p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-green-600">Active</p>
-                                    <p className="text-2xl font-bold text-green-900">{safeStats.active_certificates}</p>
+                                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                    <div className="flex items-center">
+                                        <CheckCircleIcon className="w-8 h-8 text-green-500" />
+                                        <div className="ml-4">
+                                            <p className="text-sm font-medium text-gray-600">Active Certificates</p>
+                                            <p className="text-2xl font-bold text-green-600">{stats.active_certificates}</p>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-yellow-50 rounded-lg p-6 border border-yellow-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-yellow-500 text-white">
-                                    <ExclamationTriangleIcon className="w-6 h-6" />
+                                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                    <div className="flex items-center">
+                                        <ExclamationTriangleIcon className="w-8 h-8 text-yellow-500" />
+                                        <div className="ml-4">
+                                            <p className="text-sm font-medium text-gray-600">Expiring Soon</p>
+                                            <p className="text-2xl font-bold text-yellow-600">{stats.expiring_certificates}</p>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-yellow-600">Expiring Soon</p>
-                                    <p className="text-2xl font-bold text-yellow-900">{safeStats.expiring_certificates}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-red-50 rounded-lg p-6 border border-red-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-red-500 text-white">
-                                    <XCircleIcon className="w-6 h-6" />
-                                </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-red-600">Expired</p>
-                                    <p className="text-2xl font-bold text-red-900">{safeStats.expired_certificates}</p>
+                                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                                    <div className="flex items-center">
+                                        <XCircleIcon className="w-8 h-8 text-red-500" />
+                                        <div className="ml-4">
+                                            <p className="text-sm font-medium text-gray-600">Expired</p>
+                                            <p className="text-2xl font-bold text-red-600">{stats.expired_certificates}</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     {/* Filters */}
-                    <div className="bg-white shadow rounded-lg mb-6">
-                        <div className="px-6 py-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                {/* Search */}
+                    <div className="bg-white shadow-sm sm:rounded-lg mb-6">
+                        <div className="p-6">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Search
+                                        Search Employee
                                     </label>
                                     <div className="relative">
+                                        <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                                         <input
                                             type="text"
-                                            placeholder="Certificate number, employee..."
                                             value={searchTerm}
                                             onChange={(e) => setSearchTerm(e.target.value)}
-                                            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                                            onKeyPress={handleKeyPress}
+                                            placeholder="Name or Employee ID..."
+                                            className="pl-10 w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                         />
-                                        <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
                                     </div>
                                 </div>
 
-                                {/* Status */}
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Status
-                                    </label>
-                                    <select
-                                        value={selectedStatus}
-                                        onChange={(e) => setSelectedStatus(e.target.value)}
-                                        className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                    >
-                                        <option value="">All Status</option>
-                                        <option value="active">Active</option>
-                                        <option value="expiring_soon">Expiring Soon</option>
-                                        <option value="expired">Expired</option>
-                                        <option value="completed">Completed</option>
-                                    </select>
-                                </div>
-
-                                {/* Department */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
                                         Department
@@ -329,277 +202,215 @@ export default function Index({
                                     <select
                                         value={selectedDepartment}
                                         onChange={(e) => setSelectedDepartment(e.target.value)}
-                                        className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                                        className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
                                     >
                                         <option value="">All Departments</option>
-                                        {departments?.map((dept) => (
-                                            <option key={dept.id} value={dept.id}>
-                                                {dept.name}
-                                            </option>
+                                        {departments.map(dept => (
+                                            <option key={dept.id} value={dept.id}>{dept.name}</option>
                                         ))}
                                     </select>
                                 </div>
 
-                                {/* Actions */}
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Training Status
+                                    </label>
+                                    <select
+                                        value={selectedStatus}
+                                        onChange={(e) => setSelectedStatus(e.target.value)}
+                                        className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500"
+                                    >
+                                        <option value="">All Status</option>
+                                        <option value="active">Has Active Training</option>
+                                        <option value="expiring_soon">Has Expiring Training</option>
+                                        <option value="expired">Has Expired Training</option>
+                                        <option value="no_training">No Training Records</option>
+                                    </select>
+                                </div>
+
                                 <div className="flex items-end space-x-2">
                                     <button
                                         onClick={handleSearch}
-                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                        className="flex-1 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200"
                                     >
-                                        <FunnelIcon className="w-4 h-4 inline mr-1" />
+                                        <FunnelIcon className="w-4 h-4 mr-2 inline" />
                                         Filter
                                     </button>
                                     <button
-                                        onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                                        className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-3 py-2 rounded-md text-sm font-medium transition-colors"
+                                        onClick={clearFilters}
+                                        className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200"
                                     >
-                                        <ChevronDownIcon className="w-4 h-4" />
+                                        Clear
                                     </button>
                                 </div>
                             </div>
-
-                            {/* Advanced Filters */}
-                            {showAdvancedFilters && (
-                                <div className="mt-4 pt-4 border-t border-gray-200">
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Employee
-                                            </label>
-                                            <select
-                                                value={selectedEmployee}
-                                                onChange={(e) => setSelectedEmployee(e.target.value)}
-                                                className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                            >
-                                                <option value="">All Employees</option>
-                                                {employees?.map((emp) => (
-                                                    <option key={emp.id} value={emp.id}>
-                                                        {emp.name} ({emp.employee_id})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Training Type
-                                            </label>
-                                            <select
-                                                value={selectedTrainingType}
-                                                onChange={(e) => setSelectedTrainingType(e.target.value)}
-                                                className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                            >
-                                                <option value="">All Training Types</option>
-                                                {trainingTypes?.map((type) => (
-                                                    <option key={type.id} value={type.id}>
-                                                        {type.name}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Date From
-                                            </label>
-                                            <input
-                                                type="date"
-                                                value={selectedDateFrom}
-                                                onChange={(e) => setSelectedDateFrom(e.target.value)}
-                                                className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                            />
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                                Date To
-                                            </label>
-                                            <input
-                                                type="date"
-                                                value={selectedDateTo}
-                                                onChange={(e) => setSelectedDateTo(e.target.value)}
-                                                className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="mt-4 flex justify-end space-x-2">
-                                        <button
-                                            onClick={clearFilters}
-                                            className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                        >
-                                            Clear All Filters
-                                        </button>
-                                        <button
-                                            onClick={handleSearch}
-                                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
-                                        >
-                                            Apply Filters
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </div>
 
-                    {/* Training Records Table */}
-                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                        <div className="overflow-x-auto">
+                    {/* Employees Table */}
+                    <div className="bg-white shadow-sm sm:rounded-lg">
+                        <div className="overflow-hidden">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Certificate #
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             Employee
                                         </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Training Type
+                                            Department
                                         </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Issue Date
+                                            Training Types
                                         </th>
                                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Expiry Date
+                                            Compliance
                                         </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Status
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             Actions
                                         </th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {trainingRecords?.data?.length > 0 ? (
-                                        trainingRecords.data.map((record) => {
-                                            const daysUntilExpiry = calculateDaysUntilExpiry(record.expiry_date);
-                                            return (
-                                                <tr key={record.id} className="hover:bg-gray-50">
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                        {record.certificate_number}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        <div className="flex items-center">
-                                                            <div className="flex-shrink-0 h-10 w-10">
-                                                                <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
-                                                                    <UserIcon className="h-5 w-5 text-gray-500" />
-                                                                </div>
-                                                            </div>
-                                                            <div className="ml-4">
-                                                                <div className="text-sm font-medium text-gray-900">
-                                                                    {record.employee?.name}
-                                                                </div>
-                                                                <div className="text-sm text-gray-500">
-                                                                    {record.employee?.department?.name || 'No Department'}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                        <div className="flex items-center">
-                                                            <AcademicCapIcon className="h-4 w-4 text-gray-400 mr-2" />
-                                                            {record.training_type?.name || 'N/A'}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        <div className="flex items-center">
-                                                            <CalendarIcon className="h-4 w-4 text-gray-400 mr-1" />
-                                                            {formatDate(record.issue_date)}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        <div className="flex items-center">
-                                                            <CalendarIcon className="h-4 w-4 text-gray-400 mr-1" />
-                                                            {formatDate(record.expiry_date)}
-                                                            {daysUntilExpiry !== null && (
-                                                                <span className={`ml-2 text-xs px-2 py-1 rounded-full ${
-                                                                    daysUntilExpiry <= 0
-                                                                        ? 'bg-red-100 text-red-700'
-                                                                        : daysUntilExpiry <= 30
-                                                                        ? 'bg-yellow-100 text-yellow-700'
-                                                                        : 'bg-gray-100 text-gray-700'
-                                                                }`}>
-                                                                    {daysUntilExpiry <= 0 ? 'EXPIRED' : `${daysUntilExpiry}d`}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap">
-                                                        {getStatusBadge(record.status)}
-                                                    </td>
-                                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                        <div className="flex items-center space-x-3">
-                                                            <Link
-                                                                href={route('training-records.show', record.id)}
-                                                                className="text-blue-600 hover:text-blue-900"
-                                                                title="View Details"
-                                                            >
-                                                                <EyeIcon className="w-4 h-4" />
-                                                            </Link>
-                                                            <Link
-                                                                href={route('training-records.edit', record.id)}
-                                                                className="text-indigo-600 hover:text-indigo-900"
-                                                                title="Edit"
-                                                            >
-                                                                <PencilIcon className="w-4 h-4" />
-                                                            </Link>
-                                                            <button
-                                                                onClick={() => deleteRecord(record.id, record.certificate_number)}
-                                                                disabled={deleteLoading === record.id}
-                                                                className={`${
-                                                                    deleteLoading === record.id
-                                                                        ? 'text-gray-400 cursor-not-allowed'
-                                                                        : 'text-red-600 hover:text-red-900'
-                                                                } transition-colors`}
-                                                                title="Delete"
-                                                            >
-                                                                {deleteLoading === record.id ? (
-                                                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin"></div>
-                                                                ) : (
-                                                                    <TrashIcon className="w-4 h-4" />
-                                                                )}
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })
-                                    ) : (
+                                    {employees.data.length === 0 ? (
                                         <tr>
-                                            <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
-                                                <ClipboardDocumentListIcon className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                                                <p className="text-lg font-medium text-gray-900">No training records found</p>
-                                                <p className="text-sm">Start by adding your first training record.</p>
+                                            <td colSpan="5" className="px-6 py-12 text-center">
+                                                <UserIcon className="mx-auto w-12 h-12 text-gray-400" />
+                                                <p className="mt-2 text-sm text-gray-500">No employees found</p>
+                                                <p className="text-xs text-gray-400">Try adjusting your filters</p>
                                             </td>
                                         </tr>
+                                    ) : (
+                                        employees.data.map((employee) => (
+                                            <tr key={employee.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex items-center">
+                                                        <div className="flex-shrink-0 w-10 h-10">
+                                                            <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                                                <UserIcon className="w-6 h-6 text-gray-600" />
+                                                            </div>
+                                                        </div>
+                                                        <div className="ml-4">
+                                                            <div className="text-sm font-medium text-gray-900">
+                                                                {employee.name}
+                                                            </div>
+                                                            <div className="text-sm text-gray-500">
+                                                                ID: {employee.employee_id}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex items-center text-sm text-gray-900">
+                                                        <BuildingOffice2Icon className="w-4 h-4 mr-2 text-gray-400" />
+                                                        {employee.department?.name || 'No Department'}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="max-w-xs">
+                                                        {renderTrainingTypes(employee.training_summary)}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div className="flex items-center space-x-4">
+                                                        <div className="text-sm">
+                                                            <span className={`font-bold ${getComplianceColor(employee.training_stats)}`}>
+                                                                {employee.training_stats.total}
+                                                            </span>
+                                                            <span className="text-gray-500 ml-1">total</span>
+                                                        </div>
+                                                        {employee.training_stats.active > 0 && (
+                                                            <div className="text-sm">
+                                                                <span className="font-medium text-green-600">
+                                                                    {employee.training_stats.active}
+                                                                </span>
+                                                                <span className="text-gray-500 ml-1">active</span>
+                                                            </div>
+                                                        )}
+                                                        {employee.training_stats.expired > 0 && (
+                                                            <div className="text-sm">
+                                                                <span className="font-medium text-red-600">
+                                                                    {employee.training_stats.expired}
+                                                                </span>
+                                                                <span className="text-gray-500 ml-1">expired</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-center">
+                                                    <div className="flex items-center justify-center space-x-2">
+                                                        <Link
+                                                            href={route('employees.show', employee.id)}
+                                                            className="text-gray-400 hover:text-gray-600"
+                                                            title="View Employee Details"
+                                                        >
+                                                            <EyeIcon className="w-4 h-4" />
+                                                        </Link>
+                                                        <Link
+                                                            href={route('training-records.edit-employee', employee.id)}
+                                                            className="inline-flex items-center px-3 py-1 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors duration-200"
+                                                        >
+                                                            <PencilIcon className="w-4 h-4 mr-1" />
+                                                            Manage Training
+                                                        </Link>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))
                                     )}
                                 </tbody>
                             </table>
                         </div>
 
                         {/* Pagination */}
-                        {trainingRecords?.links && (
-                            <div className="px-6 py-3 border-t border-gray-200">
-                                <div className="flex items-center justify-between">
-                                    <div className="text-sm text-gray-500">
-                                        Showing {trainingRecords.from || 0} to {trainingRecords.to || 0} of {trainingRecords.total || 0} results
+                        {employees.links && (
+                            <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
+                                <div className="flex-1 flex justify-between sm:hidden">
+                                    {employees.prev_page_url && (
+                                        <Link
+                                            href={employees.prev_page_url}
+                                            className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                        >
+                                            Previous
+                                        </Link>
+                                    )}
+                                    {employees.next_page_url && (
+                                        <Link
+                                            href={employees.next_page_url}
+                                            className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                                        >
+                                            Next
+                                        </Link>
+                                    )}
+                                </div>
+                                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                                    <div>
+                                        <p className="text-sm text-gray-700">
+                                            Showing <span className="font-medium">{employees.from || 0}</span> to{' '}
+                                            <span className="font-medium">{employees.to || 0}</span> of{' '}
+                                            <span className="font-medium">{employees.total || 0}</span> employees
+                                        </p>
                                     </div>
-                                    <div className="flex space-x-1">
-                                        {trainingRecords.links.map((link, index) => (
-                                            <Link
-                                                key={index}
-                                                href={link.url || '#'}
-                                                className={`px-3 py-1 text-sm rounded-md ${
-                                                    link.active
-                                                        ? 'bg-green-600 text-white'
-                                                        : 'bg-white text-gray-500 border border-gray-300 hover:bg-gray-50'
-                                                }`}
-                                                dangerouslySetInnerHTML={{ __html: link.label }}
-                                                preserveState
-                                            />
-                                        ))}
+                                    <div>
+                                        <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                                            {employees.links.map((link, index) => (
+                                                <Link
+                                                    key={index}
+                                                    href={link.url || '#'}
+                                                    className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
+                                                        link.active
+                                                            ? 'z-10 bg-green-50 border-green-500 text-green-600'
+                                                            : link.url
+                                                            ? 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                                                            : 'bg-gray-100 border-gray-300 text-gray-400 cursor-not-allowed'
+                                                    } ${
+                                                        index === 0 ? 'rounded-l-md' : ''
+                                                    } ${
+                                                        index === employees.links.length - 1 ? 'rounded-r-md' : ''
+                                                    }`}
+                                                    dangerouslySetInnerHTML={{ __html: link.label }}
+                                                />
+                                            ))}
+                                        </nav>
                                     </div>
                                 </div>
                             </div>

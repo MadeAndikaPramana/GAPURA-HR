@@ -21,11 +21,6 @@ use Inertia\Inertia;
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
-|
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| contains the "web" middleware group. Now create something great!
-|
 */
 
 Route::get('/', function () {
@@ -89,8 +84,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/training-types/bulk-action', [TrainingTypeController::class, 'bulkAction'])
         ->name('training-types.bulk-action');
 
-    // Training Record Management
+    // Training Record Management (FIXED - Routes moved here)
     Route::resource('training-records', TrainingRecordController::class);
+
+    // ===== EMPLOYEE-CENTRIC TRAINING ROUTES (ADDED HERE) =====
+    Route::get('/training-records/employee/{employee}/edit', [TrainingRecordController::class, 'editEmployee'])
+        ->name('training-records.edit-employee');
+    Route::post('/training-records/employee/{employee}/update-training', [TrainingRecordController::class, 'updateEmployeeTraining'])
+        ->name('training-records.update-employee-training');
+
+    // Other training record routes
     Route::post('/training-records/bulk-action', [TrainingRecordController::class, 'bulkAction'])
         ->name('training-records.bulk-action');
     Route::get('/training-records/{trainingRecord}/certificates', [TrainingRecordController::class, 'getCertificates'])
@@ -122,7 +125,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/notifications/unread/count', [NotificationController::class, 'getUnreadCount'])
         ->name('notifications.unread-count');
 
-    // Import/Export Operations
+    // Import/Export Operations (CLEANED - Removed misplaced routes)
     Route::prefix('import-export')->name('import-export.')->group(function () {
         Route::get('/', [ImportExportController::class, 'index'])->name('index');
 

@@ -407,7 +407,7 @@ class TrainingStatusService
                 'issue_date' => Carbon::today()->format('Y-m-d'),
                 'status' => 'active',
                 'compliance_status' => 'compliant',
-                'created_by_id' => auth()->id(),
+                'created_by_id' => optional(auth())->id(),
             ], $renewalData);
 
             // Calculate expiry date
