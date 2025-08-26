@@ -3,210 +3,270 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TrainingType;
+use App\Models\TrainingProvider;
+use App\Models\Employee;
+use App\Models\TrainingRecord;
+use App\Services\TrainingTypeAnalyticsService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use App\Models\TrainingType;
-use App\Models\TrainingRecord;
 
 class TrainingTypeController extends Controller
 {
+    protected $analyticsService;
+
+    public function __construct()
+    {
+        // Only create analytics service if it exists
+        if (class_exists(\App\Services\TrainingTypeAnalyticsService::class)) {
+            $this->analyticsService = app(TrainingTypeAnalyticsService::class);
+        }
+    }
+
     /**
-     * Display a listing of training types
+     * Display training types with analytics dashboard
      */
     public function index(Request $request)
     {
-        $query = TrainingType::query();
+        // Get basic analytics data
+        $analytics = [];
+        $complianceOverview = [];
+        $monthlyTrends = [];
+        $costAnalytics = [];
 
-        // Search functionality
-        if ($request->has('search') && $request->search) {
-            $query->where(function($q) use ($request) {
-                $q->where('name', 'like', '%' . $request->search . '%')
-                  ->orWhere('code', 'like', '%' . $request->search . '%')
-                  ->orWhere('category', 'like', '%' . $request->search . '%');
-            });
+        // If analytics service is available, use it
+        if ($this->analyticsService) {
+            try {
+                $analytics = $this->analyticsService->getTrainingTypeAnalytics();
+                $complianceOverview = $this->analyticsService->getComplianceOverview();
+                $monthlyTrends = $this->analyticsService->getMonthlyTrainingTrends();
+                $costAnalytics = $this->analyticsService->getTrainingCostAnalytics();
+            } catch (\Exception $e) {
+                // Fallback to basic data if analytics fail
+                logger('Training Type Analytics Error: ' . $e->getMessage());
+            }
         }
 
-        // Category filter
-        if ($request->has('category') && $request->category) {
-            $query->where('category', $request->category);
-        }
-
-        // Status filter
-        if ($request->has('status') && $request->status !== '') {
-            $query->where('is_active', $request->status);
-        }
-
-        $trainingTypes = $query->withCount(['trainingRecords', 'activeTrainingRecords', 'expiredTrainingRecords'])
-            ->paginate(15)
-            ->withQueryString();
-
-        // Get categories for filter
-        $categories = TrainingType::distinct('category')->pluck('category')->filter();
+        // Get basic training types data
+        $trainingTypes = TrainingType::withCount([
+            'trainingRecords',
+            'trainingRecords as active_count' => function ($q) {
+                $q->where('status', 'active');
+            },
+            'trainingRecords as expiring_count' => function ($q) {
+                $q->where('status', 'expiring_soon');
+            },
+            'trainingRecords as expired_count' => function ($q) {
+                $q->where('status', 'expired');
+            }
+        ])->paginate(15);
 
         return Inertia::render('TrainingTypes/Index', [
             'trainingTypes' => $trainingTypes,
-            'categories' => $categories,
-            'filters' => $request->only(['search', 'category', 'status']),
+            'analytics' => $analytics,
+            'complianceOverview' => $complianceOverview,
+            'monthlyTrends' => $monthlyTrends,
+            'costAnalytics' => $costAnalytics,
+            'filters' => $request->only(['search', 'category']),
+        ]);
+    }
+
+    /**
+     * Show create form
+     */
+    public function create()
+    {
+        $providers = TrainingProvider::select('id', 'name')->orderBy('name')->get();
+
+        return Inertia::render('TrainingTypes/Create', [
+            'providers' => $providers,
+            'categoryOptions' => $this->getCategoryOptions(),
+        ]);
+    }
+
+    /**
+     * Store new training type
+     */
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255|unique:training_types',
+            'code' => 'required|string|max:20|unique:training_types',
+            'category' => 'required|string|max:100',
+            'description' => 'nullable|string',
+            'validity_months' => 'nullable|integer|min:1|max:120',
+            // Add Phase 3 fields if they exist in the table
+            'is_mandatory' => 'sometimes|boolean',
+            'is_active' => 'sometimes|boolean',
+            'validity_period_months' => 'sometimes|integer|min:1|max:120',
+            'warning_period_days' => 'sometimes|integer|min:1|max:365',
+            'estimated_cost' => 'sometimes|nullable|numeric|min:0',
+            'estimated_duration_hours' => 'sometimes|nullable|numeric|min:0.5',
+            'requirements' => 'sometimes|nullable|string',
+            'learning_objectives' => 'sometimes|nullable|string',
+        ]);
+
+        // Set defaults for Phase 3 fields if they don't exist
+        $validated = array_merge([
+            'is_active' => true,
+            'validity_months' => $validated['validity_period_months'] ?? $validated['validity_months'] ?? 12,
+        ], $validated);
+
+        try {
+            $trainingType = TrainingType::create($validated);
+
+            return redirect()
+                ->route('training-types.index')
+                ->with('success', "Training type '{$trainingType->name}' berhasil dibuat!");
+
+        } catch (\Exception $e) {
+            return back()
+                ->withErrors(['general' => 'Gagal membuat training type: ' . $e->getMessage()])
+                ->withInput();
+        }
+    }
+
+    /**
+     * Show training type details
+     */
+    public function show(TrainingType $trainingType)
+    {
+        $trainingType->load([
+            'trainingRecords' => function ($query) {
+                $query->with('employee:id,name,employee_id,department_id')
+                      ->with('employee.department:id,name')
+                      ->orderBy('completion_date', 'desc')
+                      ->limit(10);
+            }
+        ]);
+
+        $trainingType->loadCount([
+            'trainingRecords',
+            'trainingRecords as active_count' => function ($q) {
+                $q->where('status', 'active');
+            },
+            'trainingRecords as expiring_count' => function ($q) {
+                $q->where('status', 'expiring_soon');
+            },
+            'trainingRecords as expired_count' => function ($q) {
+                $q->where('status', 'expired');
+            }
+        ]);
+
+        // Calculate compliance rate
+        $totalEmployees = Employee::count();
+        $complianceRate = $totalEmployees > 0
+            ? round(($trainingType->active_count / $totalEmployees) * 100, 1)
+            : 0;
+
+        return Inertia::render('TrainingTypes/Show', [
+            'trainingType' => $trainingType,
+            'complianceRate' => $complianceRate,
             'stats' => [
-                'total' => TrainingType::count(),
-                'active' => TrainingType::where('is_active', true)->count(),
-                'categories' => TrainingType::distinct('category')->count(),
+                'total_certificates' => $trainingType->training_records_count,
+                'active_certificates' => $trainingType->active_count,
+                'expiring_certificates' => $trainingType->expiring_count,
+                'expired_certificates' => $trainingType->expired_count,
             ]
         ]);
     }
 
     /**
-     * Show the form for creating a new training type
-     */
-    public function create()
-    {
-        $categories = TrainingType::distinct('category')->pluck('category')->filter();
-
-        return Inertia::render('TrainingTypes/Create', [
-            'categories' => $categories
-        ]);
-    }
-
-    /**
-     * Store a newly created training type
-     */
-    public function store(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255|unique:training_types',
-            'code' => 'required|string|max:20|unique:training_types',
-            'category' => 'required|string|max:100',
-            'validity_months' => 'required|integer|min:1|max:120',
-            'description' => 'nullable|string',
-            'is_active' => 'boolean'
-        ]);
-
-        TrainingType::create([
-            'name' => $request->name,
-            'code' => strtoupper($request->code),
-            'category' => $request->category,
-            'validity_months' => $request->validity_months,
-            'description' => $request->description,
-            'is_active' => $request->boolean('is_active', true)
-        ]);
-
-        return redirect()->route('training-types.index')
-            ->with('success', 'Training type berhasil ditambahkan.');
-    }
-
-    /**
-     * Display the specified training type
-     */
-    public function show(TrainingType $trainingType)
-    {
-        $trainingType->load(['trainingRecords.employee.department']);
-
-        // Get statistics
-        $stats = $trainingType->compliance_stats;
-
-        // Get training records by status
-        $recordsByStatus = $trainingType->trainingRecords()
-            ->with(['employee.department'])
-            ->get()
-            ->groupBy('status')
-            ->map(function($records) {
-                return $records->count();
-            });
-
-        // Get recent training records
-        $recentRecords = $trainingType->trainingRecords()
-            ->with(['employee.department'])
-            ->orderBy('created_at', 'desc')
-            ->limit(10)
-            ->get();
-
-        // Get employees by department
-        $employeesByDepartment = $trainingType->trainingRecords()
-            ->with(['employee.department'])
-            ->get()
-            ->groupBy('employee.department.name')
-            ->map(function($records) {
-                return $records->count();
-            });
-
-        return Inertia::render('TrainingTypes/Show', [
-            'trainingType' => $trainingType,
-            'stats' => $stats,
-            'recordsByStatus' => $recordsByStatus,
-            'recentRecords' => $recentRecords,
-            'employeesByDepartment' => $employeesByDepartment
-        ]);
-    }
-
-    /**
-     * Show the form for editing the specified training type
+     * Show edit form
      */
     public function edit(TrainingType $trainingType)
     {
-        $categories = TrainingType::distinct('category')->pluck('category')->filter();
+        $providers = TrainingProvider::select('id', 'name')->orderBy('name')->get();
 
         return Inertia::render('TrainingTypes/Edit', [
             'trainingType' => $trainingType,
-            'categories' => $categories
+            'providers' => $providers,
+            'categoryOptions' => $this->getCategoryOptions(),
         ]);
     }
 
     /**
-     * Update the specified training type
+     * Update training type
      */
     public function update(Request $request, TrainingType $trainingType)
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => 'required|string|max:255|unique:training_types,name,' . $trainingType->id,
             'code' => 'required|string|max:20|unique:training_types,code,' . $trainingType->id,
             'category' => 'required|string|max:100',
-            'validity_months' => 'required|integer|min:1|max:120',
             'description' => 'nullable|string',
-            'is_active' => 'boolean'
+            'validity_months' => 'nullable|integer|min:1|max:120',
+            // Add Phase 3 fields if they exist
+            'is_mandatory' => 'sometimes|boolean',
+            'is_active' => 'sometimes|boolean',
+            'validity_period_months' => 'sometimes|integer|min:1|max:120',
+            'warning_period_days' => 'sometimes|integer|min:1|max:365',
+            'estimated_cost' => 'sometimes|nullable|numeric|min:0',
+            'estimated_duration_hours' => 'sometimes|nullable|numeric|min:0.5',
+            'requirements' => 'sometimes|nullable|string',
+            'learning_objectives' => 'sometimes|nullable|string',
         ]);
 
-        $trainingType->update([
-            'name' => $request->name,
-            'code' => strtoupper($request->code),
-            'category' => $request->category,
-            'validity_months' => $request->validity_months,
-            'description' => $request->description,
-            'is_active' => $request->boolean('is_active')
-        ]);
+        try {
+            $trainingType->update($validated);
 
-        return redirect()->route('training-types.index')
-            ->with('success', 'Training type berhasil diupdate.');
+            return redirect()
+                ->route('training-types.index')
+                ->with('success', "Training type '{$trainingType->name}' berhasil diupdate!");
+
+        } catch (\Exception $e) {
+            return back()
+                ->withErrors(['general' => 'Gagal mengupdate training type: ' . $e->getMessage()])
+                ->withInput();
+        }
     }
 
     /**
-     * Remove the specified training type
+     * Delete training type
      */
     public function destroy(TrainingType $trainingType)
     {
-        // Check if training type has training records
-        if ($trainingType->trainingRecords()->count() > 0) {
-            return redirect()->route('training-types.index')
-                ->with('error', 'Tidak dapat menghapus training type yang memiliki training records.');
+        // Check if training type has associated records
+        $recordCount = $trainingType->trainingRecords()->count();
+
+        if ($recordCount > 0) {
+            return back()->withErrors([
+                'general' => "Tidak dapat menghapus training type '{$trainingType->name}' karena memiliki {$recordCount} training records."
+            ]);
         }
 
-        $trainingType->delete();
+        try {
+            $name = $trainingType->name;
+            $trainingType->delete();
 
-        return redirect()->route('training-types.index')
-            ->with('success', 'Training type berhasil dihapus.');
+            return redirect()
+                ->route('training-types.index')
+                ->with('success', "Training type '{$name}' berhasil dihapus!");
+
+        } catch (\Exception $e) {
+            return back()->withErrors([
+                'general' => 'Gagal menghapus training type: ' . $e->getMessage()
+            ]);
+        }
     }
 
     /**
-     * Toggle active status
+     * Get category options
      */
-    public function toggleStatus(TrainingType $trainingType)
+    private function getCategoryOptions(): array
     {
-        $trainingType->update([
-            'is_active' => !$trainingType->is_active
-        ]);
-
-        $status = $trainingType->is_active ? 'activated' : 'deactivated';
-
-        return redirect()->back()
-            ->with('success', "Training type berhasil {$status}.");
+        return [
+            'Safety' => 'Safety',
+            'Security' => 'Security',
+            'Aviation' => 'Aviation',
+            'Technical' => 'Technical',
+            'Compliance' => 'Compliance',
+            'Quality' => 'Quality',
+            'Service' => 'Service',
+            'Operations' => 'Operations',
+            'Management' => 'Management',
+            'Finance' => 'Finance',
+            'IT' => 'IT & Technology'
+        ];
     }
 }

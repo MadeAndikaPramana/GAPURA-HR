@@ -1,29 +1,69 @@
 <?php
+// app/Models/TrainingType.php - Enhanced for Phase 3
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class TrainingType extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'name',
         'code',
-        'validity_months',
         'category',
         'description',
-        'is_active'
+        'is_active',
+        'is_mandatory',
+        'validity_period_months',
+        'warning_period_days',
+        'default_provider_id',
+        'estimated_cost',
+        'estimated_duration_hours',
+        'requirements',
+        'learning_objectives',
+        'requires_certification',
+        'auto_renewal_available',
+        'max_participants_per_batch',
+        'priority_score',
+        'compliance_target_percentage',
+        'applicable_departments',
+        'applicable_job_levels',
+        'certificate_template',
+        'custom_fields',
+        'last_analytics_update',
+        'created_by_id',
+        'updated_by_id'
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
-        'validity_months' => 'integer'
+        'is_mandatory' => 'boolean',
+        'requires_certification' => 'boolean',
+        'auto_renewal_available' => 'boolean',
+        'estimated_cost' => 'decimal:2',
+        'estimated_duration_hours' => 'decimal:2',
+        'compliance_target_percentage' => 'decimal:2',
+        'applicable_departments' => 'json',
+        'applicable_job_levels' => 'json',
+        'custom_fields' => 'json',
+        'last_analytics_update' => 'datetime'
     ];
 
+    // =================================================================
+    // RELATIONSHIPS
+    // =================================================================
+
     /**
-     * Get all training records for this training type
+     * Training records for this type
      */
     public function trainingRecords(): HasMany
     {
@@ -31,250 +71,397 @@ class TrainingType extends Model
     }
 
     /**
-     * Get active training records for this training type
+     * Active training records
      */
     public function activeTrainingRecords(): HasMany
     {
-        return $this->hasMany(TrainingRecord::class)->where('status', 'active');
+        return $this->trainingRecords()->where('status', 'active');
     }
 
     /**
-     * Get expiring training records for this training type
+     * Expiring training records
      */
     public function expiringTrainingRecords(): HasMany
     {
-        return $this->hasMany(TrainingRecord::class)->where('status', 'expiring_soon');
+        return $this->trainingRecords()->where('status', 'expiring_soon');
     }
 
     /**
-     * Get expired training records for this training type
+     * Expired training records
      */
     public function expiredTrainingRecords(): HasMany
     {
-        return $this->hasMany(TrainingRecord::class)->where('status', 'expired');
+        return $this->trainingRecords()->where('status', 'expired');
     }
 
     /**
-     * Get compliance statistics for this training type
+     * Default training provider
      */
-    public function getComplianceStatsAttribute(): array
+    public function defaultProvider(): BelongsTo
     {
-        $total = $this->trainingRecords()->count();
-        $active = $this->activeTrainingRecords()->count();
-        $expiring = $this->expiringTrainingRecords()->count();
-        $expired = $this->expiredTrainingRecords()->count();
-
-        return [
-            'total_certificates' => $total,
-            'active_certificates' => $active,
-            'expiring_certificates' => $expiring,
-            'expired_certificates' => $expired,
-            'compliance_rate' => $total > 0 ? round(($active / $total) * 100, 2) : 0,
-        ];
+        return $this->belongsTo(TrainingProvider::class, 'default_provider_id');
     }
 
     /**
-     * Get employees who have this training type
+     * User who created this training type
      */
-    public function employees()
+    public function createdBy(): BelongsTo
     {
-        return $this->hasManyThrough(
-            Employee::class,
-            TrainingRecord::class,
-            'training_type_id', // Foreign key on training_records table
-            'id', // Foreign key on employees table
-            'id', // Local key on training_types table
-            'employee_id' // Local key on training_records table
-        )->distinct();
+        return $this->belongsTo(User::class, 'created_by_id');
     }
 
     /**
-     * Get departments that have employees with this training
+     * User who last updated this training type
      */
-    public function departments()
+    public function updatedBy(): BelongsTo
     {
-        return $this->hasManyThrough(
-            Department::class,
-            TrainingRecord::class,
-            'training_type_id', // Foreign key on training_records table
-            'id', // Foreign key on departments table
-            'id', // Local key on training_types table
-            'department_id' // Local key on training_records table
-        )->distinct();
+        return $this->belongsTo(User::class, 'updated_by_id');
     }
 
     /**
-     * Get statistics by department for this training type
+     * Cached statistics for this training type
      */
-    public function getDepartmentStatsAttribute(): array
+    public function statistics(): HasOne
     {
-        return $this->departments()
-            ->selectRaw('
-                departments.id as department_id,
-                departments.name as department_name,
-                COUNT(training_records.id) as total_certificates,
-                COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_count,
-                COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_count,
-                COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_count
-            ')
-            ->groupBy('departments.id', 'departments.name')
-            ->get()
-            ->toArray();
+        return $this->hasOne(TrainingTypeStatistic::class);
     }
 
     /**
-     * Scope for active training types
+     * Department requirements
      */
+    public function departmentRequirements(): HasMany
+    {
+        return $this->hasMany(TrainingTypeDepartmentRequirement::class);
+    }
+
+    /**
+     * Departments that require this training
+     */
+    public function requiredDepartments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class, 'training_type_department_requirements')
+                    ->withPivot(['is_required', 'frequency_months', 'target_compliance_rate'])
+                    ->withTimestamps();
+    }
+
+    // =================================================================
+    // SCOPES
+    // =================================================================
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true);
     }
 
-    /**
-     * Scope for specific category
-     */
-    public function scopeCategory($query, $category)
+    public function scopeMandatory($query)
+    {
+        return $query->where('is_mandatory', true);
+    }
+
+    public function scopeByCategory($query, $category)
     {
         return $query->where('category', $category);
     }
 
-    /**
-     * Scope for search
-     */
-    public function scopeSearch($query, $term)
+    public function scopeHighPriority($query)
     {
-        return $query->where(function($q) use ($term) {
-            $q->where('name', 'like', "%{$term}%")
-              ->orWhere('code', 'like', "%{$term}%")
-              ->orWhere('category', 'like', "%{$term}%");
-        });
+        return $query->where('priority_score', '>', 50);
     }
 
-    /**
-     * Get category badge color for UI
-     */
-    public function getCategoryColorAttribute(): string
+    public function scopeWithStatistics($query)
     {
-        $colors = [
-            'safety' => 'red',
-            'operational' => 'blue',
-            'security' => 'purple',
-            'technical' => 'green'
-        ];
-
-        return $colors[$this->category] ?? 'gray';
+        return $query->with(['statistics', 'trainingRecords']);
     }
 
-    /**
-     * Get formatted validity period
-     */
-    public function getFormattedValidityAttribute(): string
-    {
-        if ($this->validity_months < 12) {
-            return "{$this->validity_months} month(s)";
-        }
-
-        $years = floor($this->validity_months / 12);
-        $months = $this->validity_months % 12;
-
-        if ($months === 0) {
-            return "{$years} year(s)";
-        }
-
-        return "{$years} year(s) {$months} month(s)";
-    }
+    // =================================================================
+    // ANALYTICS METHODS
+    // =================================================================
 
     /**
-     * Check if training type has any certificates
+     * Calculate current compliance statistics
      */
-    public function hasCertificates(): bool
+    public function calculateComplianceStatistics(): array
     {
-        return $this->trainingRecords()->exists();
-    }
+        $totalEmployees = Employee::count();
+        $activeCount = $this->activeTrainingRecords()->count();
+        $expiringCount = $this->expiringTrainingRecords()->count();
+        $expiredCount = $this->expiredTrainingRecords()->count();
+        $totalCertificates = $this->trainingRecords()->count();
 
-    /**
-     * Get upcoming expiry notifications count
-     */
-    public function getUpcomingExpiriesCount($days = 30): int
-    {
-        return $this->trainingRecords()
-            ->where('expiry_date', '<=', now()->addDays($days))
-            ->where('expiry_date', '>=', now())
-            ->where('status', '!=', 'expired')
-            ->count();
-    }
+        $complianceRate = $totalEmployees > 0
+            ? round(($activeCount / $totalEmployees) * 100, 2)
+            : 0;
 
-    /**
-     * Generate unique code for training type
-     */
-    public static function generateUniqueCode($name): string
-    {
-        // Generate base code from name
-        $baseCode = strtoupper(substr(str_replace(' ', '', $name), 0, 8));
+        $riskLevel = $this->calculateRiskLevel($complianceRate);
+        $priorityScore = $this->calculatePriorityScore($activeCount, $expiringCount, $expiredCount);
 
-        // Check if code exists
-        $counter = 1;
-        $code = $baseCode;
-
-        while (self::where('code', $code)->exists()) {
-            $code = $baseCode . $counter;
-            $counter++;
-        }
-
-        return $code;
-    }
-
-    /**
-     * Boot method for model events
-     */
-    protected static function boot()
-    {
-        parent::boot();
-
-        // Auto-generate code if not provided
-        static::creating(function ($trainingType) {
-            if (empty($trainingType->code)) {
-                $trainingType->code = self::generateUniqueCode($trainingType->name);
-            }
-        });
-    }
-
-    /**
-     * Get all available categories
-     */
-    public static function getCategories(): array
-    {
-        return ['safety', 'operational', 'security', 'technical'];
-    }
-
-    /**
-     * Get category descriptions
-     */
-    public static function getCategoryDescriptions(): array
-    {
         return [
-            'safety' => 'Safety-related trainings including fire safety, first aid, occupational health and safety.',
-            'operational' => 'Operational trainings for day-to-day work processes, ground handling, customer service.',
-            'security' => 'Security and access control trainings, airport security awareness, background checks.',
-            'technical' => 'Technical skills training for equipment operation, maintenance, specialized procedures.'
+            'total_employees' => $totalEmployees,
+            'total_certificates' => $totalCertificates,
+            'active_certificates' => $activeCount,
+            'expiring_certificates' => $expiringCount,
+            'expired_certificates' => $expiredCount,
+            'compliance_rate' => $complianceRate,
+            'employees_trained' => $activeCount,
+            'employees_need_training' => max(0, $totalEmployees - $activeCount),
+            'risk_level' => $riskLevel,
+            'priority_score' => $priorityScore,
+            'compliance_status' => $this->getComplianceStatus($complianceRate)
         ];
     }
 
     /**
-     * Get training types with their statistics
+     * Calculate department-wise compliance
      */
-    public static function withStatistics()
+    public function calculateDepartmentCompliance(): array
     {
-        return self::query()
-            ->leftJoin('training_records', 'training_types.id', '=', 'training_records.training_type_id')
-            ->selectRaw('
-                training_types.*,
-                COUNT(training_records.id) as total_certificates,
-                COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_certificates,
-                COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_certificates,
-                COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_certificates
-            ')
-            ->groupBy('training_types.id')
-            ->orderBy('training_types.name');
+        return Department::withCount([
+            'employees',
+            'employees as trained_employees' => function ($query) {
+                $query->whereHas('trainingRecords', function ($q) {
+                    $q->where('training_type_id', $this->id)
+                      ->where('status', 'active');
+                });
+            }
+        ])->get()->map(function ($dept) {
+            $complianceRate = $dept->employees_count > 0
+                ? round(($dept->trained_employees / $dept->employees_count) * 100, 1)
+                : 0;
+
+            return [
+                'department_id' => $dept->id,
+                'department_name' => $dept->name,
+                'total_employees' => $dept->employees_count,
+                'trained_employees' => $dept->trained_employees,
+                'untrained_employees' => $dept->employees_count - $dept->trained_employees,
+                'compliance_rate' => $complianceRate,
+                'compliance_status' => $this->getComplianceStatus($complianceRate),
+                'target_met' => $complianceRate >= $this->compliance_target_percentage
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Get upcoming expiry information
+     */
+    public function getUpcomingExpiries($days = 90): array
+    {
+        $cutoffDate = Carbon::now()->addDays($days);
+
+        $upcomingExpiries = $this->trainingRecords()
+            ->whereNotNull('expiry_date')
+            ->where('expiry_date', '<=', $cutoffDate)
+            ->where('status', '!=', 'expired')
+            ->with(['employee.department'])
+            ->orderBy('expiry_date', 'asc')
+            ->get();
+
+        return $upcomingExpiries->groupBy(function ($record) {
+            $daysUntilExpiry = Carbon::parse($record->expiry_date)->diffInDays(Carbon::today(), false);
+
+            if ($daysUntilExpiry < 0) {
+                return 'expired';
+            } elseif ($daysUntilExpiry <= 7) {
+                return 'critical'; // 7 days or less
+            } elseif ($daysUntilExpiry <= 30) {
+                return 'urgent';   // 8-30 days
+            } else {
+                return 'warning';  // 31-90 days
+            }
+        })->map(function ($group) {
+            return $group->map(function ($record) {
+                return [
+                    'employee_name' => $record->employee->name,
+                    'employee_nik' => $record->employee->nik,
+                    'department' => $record->employee->department->name,
+                    'certificate_number' => $record->certificate_number,
+                    'expiry_date' => $record->expiry_date,
+                    'days_until_expiry' => Carbon::parse($record->expiry_date)->diffInDays(Carbon::today(), false)
+                ];
+            });
+        })->toArray();
+    }
+
+    /**
+     * Get training cost analytics
+     */
+    public function getCostAnalytics($year = null): array
+    {
+        $year = $year ?? Carbon::now()->year;
+
+        $costs = $this->trainingRecords()
+            ->whereYear('completion_date', $year)
+            ->whereNotNull('cost')
+            ->where('cost', '>', 0)
+            ->select(
+                DB::raw('COUNT(*) as total_certificates'),
+                DB::raw('SUM(cost) as total_cost'),
+                DB::raw('AVG(cost) as average_cost'),
+                DB::raw('MAX(cost) as max_cost'),
+                DB::raw('MIN(cost) as min_cost')
+            )
+            ->first();
+
+        return [
+            'year' => $year,
+            'total_certificates' => $costs->total_certificates ?? 0,
+            'total_cost' => $costs->total_cost ?? 0,
+            'average_cost' => $costs->average_cost ?? 0,
+            'max_cost' => $costs->max_cost ?? 0,
+            'min_cost' => $costs->min_cost ?? 0,
+            'estimated_budget_needed' => $this->estimated_cost
+                ? $this->estimateAnnualBudgetNeed()
+                : 0
+        ];
+    }
+
+    /**
+     * Update cached statistics
+     */
+    public function updateStatistics(): void
+    {
+        $stats = $this->calculateComplianceStatistics();
+        $costStats = $this->getCostAnalytics();
+
+        $this->statistics()->updateOrCreate(
+            ['training_type_id' => $this->id],
+            [
+                'total_certificates' => $stats['total_certificates'],
+                'active_certificates' => $stats['active_certificates'],
+                'expiring_certificates' => $stats['expiring_certificates'],
+                'expired_certificates' => $stats['expired_certificates'],
+                'compliance_rate' => $stats['compliance_rate'],
+                'employees_trained' => $stats['employees_trained'],
+                'employees_need_training' => $stats['employees_need_training'],
+                'risk_level' => $stats['risk_level'],
+                'calculated_priority_score' => $stats['priority_score'],
+                'total_cost_ytd' => $costStats['total_cost'],
+                'average_cost_per_certificate' => $costStats['average_cost'],
+                'certificates_issued_this_year' => $costStats['total_certificates'],
+                'calculated_at' => Carbon::now()
+            ]
+        );
+
+        $this->update(['last_analytics_update' => Carbon::now()]);
+    }
+
+    // =================================================================
+    // HELPER METHODS
+    // =================================================================
+
+    /**
+     * Calculate risk level based on compliance rate and mandatory status
+     */
+    private function calculateRiskLevel(float $complianceRate): string
+    {
+        if (!$this->is_mandatory) {
+            return 'low';
+        }
+
+        if ($complianceRate >= 95) {
+            return 'low';
+        } elseif ($complianceRate >= 80) {
+            return 'medium';
+        } elseif ($complianceRate >= 60) {
+            return 'high';
+        } else {
+            return 'critical';
+        }
+    }
+
+    /**
+     * Calculate priority score for scheduling
+     */
+    private function calculatePriorityScore(int $active, int $expiring, int $expired): int
+    {
+        $score = $this->priority_score; // Base score
+
+        // Mandatory training gets higher priority
+        if ($this->is_mandatory) {
+            $score += 30;
+        }
+
+        // More expired certificates = higher priority
+        $score += $expired * 5;
+
+        // More expiring certificates = moderate priority increase
+        $score += $expiring * 3;
+
+        // Safety/Security categories get priority boost
+        if (stripos($this->category, 'safety') !== false ||
+            stripos($this->category, 'security') !== false) {
+            $score += 20;
+        }
+
+        return min($score, 100); // Cap at 100
+    }
+
+    /**
+     * Get compliance status text
+     */
+    private function getComplianceStatus(float $rate): string
+    {
+        if ($rate >= 95) return 'excellent';
+        if ($rate >= 85) return 'good';
+        if ($rate >= 70) return 'fair';
+        if ($rate >= 50) return 'poor';
+        return 'critical';
+    }
+
+    /**
+     * Estimate annual budget need for this training
+     */
+    private function estimateAnnualBudgetNeed(): float
+    {
+        if (!$this->estimated_cost || !$this->validity_period_months) {
+            return 0;
+        }
+
+        $totalEmployees = Employee::count();
+
+        // Calculate how many renewals needed per year
+        $renewalsPerYear = $totalEmployees / ($this->validity_period_months / 12);
+
+        return round($renewalsPerYear * $this->estimated_cost, 2);
+    }
+
+    /**
+     * Check if training is applicable to a specific department
+     */
+    public function isApplicableToDepartment(int $departmentId): bool
+    {
+        if (!$this->applicable_departments) {
+            return true; // If not specified, applies to all
+        }
+
+        return in_array($departmentId, $this->applicable_departments);
+    }
+
+    /**
+     * Get human-readable validity period
+     */
+    public function getValidityPeriodAttribute(): string
+    {
+        if (!$this->validity_period_months) {
+            return 'No expiry';
+        }
+
+        if ($this->validity_period_months === 12) {
+            return '1 year';
+        } elseif ($this->validity_period_months % 12 === 0) {
+            return ($this->validity_period_months / 12) . ' years';
+        } else {
+            return $this->validity_period_months . ' months';
+        }
+    }
+
+    /**
+     * Get formatted estimated cost
+     */
+    public function getFormattedCostAttribute(): string
+    {
+        return $this->estimated_cost
+            ? 'Rp ' . number_format($this->estimated_cost, 0, ',', '.')
+            : 'Not specified';
     }
 }
