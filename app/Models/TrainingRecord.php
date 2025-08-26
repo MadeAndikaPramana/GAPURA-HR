@@ -1,32 +1,28 @@
 <?php
-// app/Models/TrainingRecord.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Builder;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Auth;
 
 class TrainingRecord extends Model
 {
     use HasFactory;
 
-    // PERBAIKAN: Tambah field yang missing ke fillable
     protected $fillable = [
         'employee_id',
         'training_type_id',
         'training_provider_id',
-        'certificate_number',           // ✅ TAMBAH: Field ini missing
-        'issuer',                      // ✅ TAMBAH: Field ini missing
-        'issue_date',                  // ✅ TAMBAH: Field ini missing
-        'batch_number',
-        'training_date',
+        'certificate_number',
+        'issuer',
+        'issue_date',
         'completion_date',
         'expiry_date',
+        'training_date',
         'status',
         'compliance_status',
+        'batch_number',
         'score',
         'passing_score',
         'training_hours',
@@ -40,76 +36,21 @@ class TrainingRecord extends Model
         'updated_by_id'
     ];
 
-    // PERBAIKAN: Tambah casting untuk field baru
     protected $casts = [
-        'issue_date' => 'date',           // ✅ TAMBAH: Casting untuk issue_date
-        'training_date' => 'date',
+        'issue_date' => 'date',
         'completion_date' => 'date',
         'expiry_date' => 'date',
+        'training_date' => 'date',
+        'reminder_sent_at' => 'datetime',
         'score' => 'decimal:2',
         'passing_score' => 'decimal:2',
         'training_hours' => 'decimal:2',
         'cost' => 'decimal:2',
-        'reminder_sent_at' => 'datetime',
         'reminder_count' => 'integer'
     ];
 
-    protected $appends = [
-        'is_passed',
-        'days_until_expiry',
-        'compliance_color',
-        'next_reminder_date'
-    ];
-
     /**
-     * PERBAIKAN: Boot method to handle automatic calculations
-     */
-    protected static function boot()
-    {
-        parent::boot();
-
-        static::saving(function ($trainingRecord) {
-            // PERBAIKAN: Update compliance_status berdasarkan expiry_date
-            $trainingRecord->updateComplianceStatus();
-
-            // Auto-set created_by dan updated_by
-            if (Auth::check()) {
-                if ($trainingRecord->isDirty() && !$trainingRecord->wasRecentlyCreated) {
-                    $trainingRecord->updated_by_id = Auth::id();
-                }
-                if ($trainingRecord->wasRecentlyCreated) {
-                    $trainingRecord->created_by_id = Auth::id();
-                }
-            }
-        });
-    }
-
-    /**
-     * PERBAIKAN: Method untuk update compliance status
-     */
-    public function updateComplianceStatus()
-    {
-        if (!$this->expiry_date) {
-            $this->compliance_status = 'not_required';
-            return;
-        }
-
-        $daysUntilExpiry = now()->startOfDay()->diffInDays(
-            Carbon::parse($this->expiry_date)->startOfDay(),
-            false
-        );
-
-        if ($daysUntilExpiry < 0) {
-            $this->compliance_status = 'expired';
-        } elseif ($daysUntilExpiry <= 30) {
-            $this->compliance_status = 'expiring_soon';
-        } else {
-            $this->compliance_status = 'compliant';
-        }
-    }
-
-    /**
-     * Get the employee this training record belongs to
+     * Relationship to Employee
      */
     public function employee()
     {
@@ -117,7 +58,7 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Get the training type
+     * Relationship to Training Type
      */
     public function trainingType()
     {
@@ -125,7 +66,7 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Get the training provider
+     * Relationship to Training Provider
      */
     public function trainingProvider()
     {
@@ -133,7 +74,7 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Get the user who created this record
+     * Relationship to User who created this record
      */
     public function createdBy()
     {
@@ -141,7 +82,7 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Get the user who last updated this record
+     * Relationship to User who last updated this record
      */
     public function updatedBy()
     {
@@ -149,41 +90,23 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Scope for filtering by status
+     * Scope for active certificates
      */
-    public function scopeByStatus($query, $status)
+    public function scopeActive($query)
     {
-        return $query->where('status', $status);
+        return $query->where('status', 'active');
     }
 
     /**
-     * Scope for filtering by compliance status
+     * Scope for completed training
      */
-    public function scopeByComplianceStatus($query, $complianceStatus)
+    public function scopeCompleted($query)
     {
-        return $query->where('compliance_status', $complianceStatus);
+        return $query->where('status', 'completed');
     }
 
     /**
-     * Scope for expiring soon records
-     */
-    public function scopeExpiringSoon($query, $days = 30)
-    {
-        return $query->where('expiry_date', '<=', now()->addDays($days))
-                    ->where('expiry_date', '>=', now())
-                    ->where('compliance_status', '!=', 'expired');
-    }
-
-    /**
-     * Scope for expired records
-     */
-    public function scopeExpired($query)
-    {
-        return $query->where('compliance_status', 'expired');
-    }
-
-    /**
-     * Scope for active/compliant records
+     * Scope for compliant certificates
      */
     public function scopeCompliant($query)
     {
@@ -191,36 +114,96 @@ class TrainingRecord extends Model
     }
 
     /**
-     * Scope for search functionality
+     * Scope for expiring certificates
      */
-    public function scopeSearch($query, $term)
+    public function scopeExpiring($query)
     {
-        return $query->where(function($q) use ($term) {
-            $q->where('certificate_number', 'like', "%{$term}%")
-              ->orWhere('issuer', 'like', "%{$term}%")
-              ->orWhere('location', 'like', "%{$term}%")
-              ->orWhere('instructor_name', 'like', "%{$term}%")
-              ->orWhereHas('employee', function ($empQuery) use ($term) {
-                  $empQuery->where('name', 'like', "%{$term}%")
-                           ->orWhere('employee_id', 'like', "%{$term}%");
-              })
-              ->orWhereHas('trainingType', function ($typeQuery) use ($term) {
-                  $typeQuery->where('name', 'like', "%{$term}%")
-                           ->orWhere('code', 'like', "%{$term}%");
-              });
+        return $query->where('compliance_status', 'expiring_soon');
+    }
+
+    /**
+     * Scope for expired certificates
+     */
+    public function scopeExpired($query)
+    {
+        return $query->where('compliance_status', 'expired');
+    }
+
+    /**
+     * Scope for certificates by provider
+     */
+    public function scopeByProvider($query, $providerId)
+    {
+        return $query->where('training_provider_id', $providerId);
+    }
+
+    /**
+     * Scope for certificates by department
+     */
+    public function scopeByDepartment($query, $departmentId)
+    {
+        return $query->whereHas('employee', function($q) use ($departmentId) {
+            $q->where('department_id', $departmentId);
         });
     }
 
     /**
-     * Check if training was passed
+     * Scope for certificates expiring within days
      */
-    public function getIsPassedAttribute()
+    public function scopeExpiringWithinDays($query, $days = 30)
     {
-        if (is_null($this->score) || is_null($this->passing_score)) {
-            return null; // No score available
-        }
+        return $query->whereNotNull('expiry_date')
+                    ->where('expiry_date', '<=', Carbon::now()->addDays($days))
+                    ->where('expiry_date', '>=', Carbon::now());
+    }
 
-        return $this->score >= $this->passing_score;
+    /**
+     * Check if certificate is expiring soon
+     */
+    public function isExpiringSoon($days = 30)
+    {
+        if (!$this->expiry_date) return false;
+
+        return Carbon::parse($this->expiry_date)->between(
+            Carbon::now(),
+            Carbon::now()->addDays($days)
+        );
+    }
+
+    /**
+     * Check if certificate is expired
+     */
+    public function isExpired()
+    {
+        if (!$this->expiry_date) return false;
+
+        return Carbon::parse($this->expiry_date)->isPast();
+    }
+
+    /**
+     * Get status badge color
+     */
+    public function getStatusColorAttribute()
+    {
+        return match($this->compliance_status) {
+            'compliant' => 'green',
+            'expiring_soon' => 'yellow',
+            'expired' => 'red',
+            default => 'gray'
+        };
+    }
+
+    /**
+     * Get status text
+     */
+    public function getStatusTextAttribute()
+    {
+        return match($this->compliance_status) {
+            'compliant' => 'Active',
+            'expiring_soon' => 'Expiring Soon',
+            'expired' => 'Expired',
+            default => 'Unknown'
+        };
     }
 
     /**
@@ -228,52 +211,65 @@ class TrainingRecord extends Model
      */
     public function getDaysUntilExpiryAttribute()
     {
-        if (is_null($this->expiry_date)) {
-            return null;
+        if (!$this->expiry_date) return null;
+
+        $now = Carbon::now();
+        $expiry = Carbon::parse($this->expiry_date);
+
+        if ($expiry->isPast()) {
+            return -$expiry->diffInDays($now);
         }
 
-        return now()->startOfDay()->diffInDays(Carbon::parse($this->expiry_date)->startOfDay(), false);
+        return $expiry->diffInDays($now);
     }
 
     /**
-     * Get compliance status color for UI
+     * Auto-update compliance status based on expiry date
      */
-    public function getComplianceColorAttribute(): string
+    public function updateComplianceStatus()
     {
-        return match($this->compliance_status) {
-            'compliant' => 'green',
-            'expiring_soon' => 'yellow',
-            'expired' => 'red',
-            'not_required' => 'gray',
-            default => 'gray'
-        };
-    }
-
-    /**
-     * Get next reminder date
-     */
-    public function getNextReminderDateAttribute()
-    {
-        if (is_null($this->expiry_date)) {
-            return null;
+        if (!$this->expiry_date) {
+            $this->compliance_status = 'compliant';
+            return;
         }
 
-        $reminderMonths = $this->trainingType?->renewal_reminder_months ?? 1;
-        return Carbon::parse($this->expiry_date)->subMonths($reminderMonths);
+        $now = Carbon::now();
+        $expiry = Carbon::parse($this->expiry_date);
+
+        if ($expiry->isPast()) {
+            $this->compliance_status = 'expired';
+        } elseif ($expiry->diffInDays($now) <= 30) {
+            $this->compliance_status = 'expiring_soon';
+        } else {
+            $this->compliance_status = 'compliant';
+        }
+
+        $this->save();
     }
 
     /**
-     * PERBAIKAN: Method untuk generate certificate number
+     * Boot method to auto-update compliance status
      */
-    public static function generateCertificateNumber($trainingTypeId, $issuer = null)
+    protected static function booted()
     {
-        $trainingType = TrainingType::find($trainingTypeId);
-        $prefix = $trainingType ? strtoupper($trainingType->code) : 'TRN';
-        $issuerCode = $issuer ? strtoupper(substr(str_replace(' ', '', $issuer), 0, 3)) : 'GAP';
+        static::saving(function ($trainingRecord) {
+            // Auto-calculate compliance status on save
+            if ($trainingRecord->isDirty('expiry_date') || !$trainingRecord->compliance_status) {
+                if ($trainingRecord->expiry_date) {
+                    $now = Carbon::now();
+                    $expiry = Carbon::parse($trainingRecord->expiry_date);
 
-        $year = date('Y');
-        $sequence = self::where('certificate_number', 'like', "{$prefix}-{$issuerCode}-%")->count() + 1;
-
-        return sprintf("%s-%s-%s-%04d", $prefix, $issuerCode, $year, $sequence);
+                    if ($expiry->isPast()) {
+                        $trainingRecord->compliance_status = 'expired';
+                    } elseif ($expiry->diffInDays($now) <= 30) {
+                        $trainingRecord->compliance_status = 'expiring_soon';
+                    } else {
+                        $trainingRecord->compliance_status = 'compliant';
+                    }
+                } else {
+                    $trainingRecord->compliance_status = 'compliant';
+                }
+            }
+        });
     }
 }

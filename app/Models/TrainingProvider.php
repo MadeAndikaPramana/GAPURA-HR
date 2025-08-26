@@ -37,27 +37,58 @@ class TrainingProvider extends Model
     ];
 
     /**
-     * Get all training types offered by this provider
-     */
-    public function trainingTypes()
-    {
-        return $this->hasMany(TrainingType::class);
-    }
-
-    /**
-     * Get active training types offered by this provider
-     */
-    public function activeTrainingTypes()
-    {
-        return $this->hasMany(TrainingType::class)->where('is_active', true);
-    }
-
-    /**
      * Get all training records conducted by this provider
      */
     public function trainingRecords()
     {
         return $this->hasMany(TrainingRecord::class);
+    }
+
+    /**
+     * Get unique training types that this provider has conducted
+     */
+    public function trainingTypes()
+    {
+        return $this->hasManyThrough(
+            TrainingType::class,
+            TrainingRecord::class,
+            'training_provider_id', // Foreign key on training_records table
+            'id',                   // Foreign key on training_types table
+            'id',                   // Local key on training_providers table
+            'training_type_id'      // Local key on training_records table
+        )->distinct();
+    }
+
+    /**
+     * Get unique departments that this provider has served
+     */
+    public function departments()
+    {
+        return $this->hasManyThrough(
+            Department::class,
+            TrainingRecord::class,
+            'training_provider_id', // Foreign key on training_records table
+            'id',                   // Foreign key on departments table
+            'id',                   // Local key on training_providers table
+            'employee_id'          // We need to go through employee
+        )->join('employees', 'employees.id', '=', 'training_records.employee_id')
+         ->where('employees.department_id', '=', 'departments.id')
+         ->distinct();
+    }
+
+    /**
+     * Get employees trained by this provider
+     */
+    public function trainedEmployees()
+    {
+        return $this->hasManyThrough(
+            Employee::class,
+            TrainingRecord::class,
+            'training_provider_id',
+            'id',
+            'id',
+            'employee_id'
+        )->distinct();
     }
 
     /**
@@ -105,6 +136,26 @@ class TrainingProvider extends Model
     }
 
     /**
+     * Scope for providers that serve specific department
+     */
+    public function scopeServingDepartment(Builder $query, $departmentId)
+    {
+        return $query->whereHas('trainingRecords.employee', function($q) use ($departmentId) {
+            $q->where('department_id', $departmentId);
+        });
+    }
+
+    /**
+     * Scope for providers that offer specific training type
+     */
+    public function scopeOfferingTrainingType(Builder $query, $trainingTypeId)
+    {
+        return $query->whereHas('trainingRecords', function($q) use ($trainingTypeId) {
+            $q->where('training_type_id', $trainingTypeId);
+        });
+    }
+
+    /**
      * Check if provider's accreditation is valid
      */
     public function hasValidAccreditation()
@@ -137,14 +188,49 @@ class TrainingProvider extends Model
         $trainingRecords = $this->trainingRecords();
 
         return [
-            'total_training_types' => $this->trainingTypes()->count(),
-            'active_training_types' => $this->activeTrainingTypes()->count(),
+            'total_training_types' => $this->getUniqueTrainingTypesCount(),
+            'active_training_types' => $this->getActiveTrainingTypesCount(),
             'total_trainings_conducted' => $trainingRecords->count(),
             'completed_trainings' => $trainingRecords->where('status', 'completed')->count(),
             'average_score' => $trainingRecords->where('status', 'completed')->avg('score'),
             'total_revenue_generated' => $trainingRecords->where('status', 'completed')->sum('cost'),
             'unique_employees_trained' => $trainingRecords->distinct('employee_id')->count(),
+            'departments_served' => $this->getUniqueDepartmentsCount(),
         ];
+    }
+
+    /**
+     * Get unique training types count
+     */
+    public function getUniqueTrainingTypesCount()
+    {
+        return $this->trainingRecords()
+                    ->distinct('training_type_id')
+                    ->count();
+    }
+
+    /**
+     * Get active training types count
+     */
+    public function getActiveTrainingTypesCount()
+    {
+        return $this->trainingRecords()
+                    ->whereHas('trainingType', function($q) {
+                        $q->where('is_active', true);
+                    })
+                    ->distinct('training_type_id')
+                    ->count();
+    }
+
+    /**
+     * Get unique departments served count
+     */
+    public function getUniqueDepartmentsCount()
+    {
+        return $this->trainingRecords()
+                    ->join('employees', 'employees.id', '=', 'training_records.employee_id')
+                    ->distinct('employees.department_id')
+                    ->count();
     }
 
     /**
@@ -198,7 +284,7 @@ class TrainingProvider extends Model
             ->avg('cost') ?: 0;
 
         $marketAverage = TrainingRecord::where('status', 'completed')
-            ->avg('cost') ?: 1;
+            ->avg('cost') ?: 0;
 
         if ($marketAverage == 0) return 100;
 
@@ -206,122 +292,30 @@ class TrainingProvider extends Model
     }
 
     /**
-     * Get training completion trend for this provider
+     * Get formatted display name (with code if available)
      */
-    public function getCompletionTrend($months = 12)
+    public function getDisplayNameAttribute()
     {
-        $endDate = now();
-        $startDate = $endDate->copy()->subMonths($months);
-
-        return $this->trainingRecords()
-            ->selectRaw('
-                DATE_FORMAT(completion_date, "%Y-%m") as month,
-                COUNT(*) as completed_count,
-                AVG(score) as average_score,
-                SUM(cost) as total_revenue
-            ')
-            ->whereBetween('completion_date', [$startDate, $endDate])
-            ->where('status', 'completed')
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
+        return $this->code ? "{$this->code} - {$this->name}" : $this->name;
     }
 
     /**
-     * Get upcoming contract expiry warning
+     * Get status badge info
      */
-    public function getContractExpiryWarning()
+    public function getStatusBadgeAttribute()
     {
-        if (is_null($this->contract_end_date)) return null;
-
-        $daysUntilExpiry = now()->diffInDays($this->contract_end_date, false);
-
-        if ($daysUntilExpiry < 0) {
-            return [
-                'status' => 'expired',
-                'message' => 'Contract expired ' . abs($daysUntilExpiry) . ' days ago',
-                'urgency' => 'critical'
-            ];
-        } elseif ($daysUntilExpiry <= 30) {
-            return [
-                'status' => 'expiring_soon',
-                'message' => 'Contract expires in ' . $daysUntilExpiry . ' days',
-                'urgency' => 'high'
-            ];
-        } elseif ($daysUntilExpiry <= 90) {
-            return [
-                'status' => 'expiring',
-                'message' => 'Contract expires in ' . $daysUntilExpiry . ' days',
-                'urgency' => 'medium'
-            ];
+        if (!$this->is_active) {
+            return ['color' => 'red', 'text' => 'Inactive'];
         }
 
-        return null;
-    }
-
-    /**
-     * Get accreditation expiry warning
-     */
-    public function getAccreditationExpiryWarning()
-    {
-        if (is_null($this->accreditation_expiry)) return null;
-
-        $daysUntilExpiry = now()->diffInDays($this->accreditation_expiry, false);
-
-        if ($daysUntilExpiry < 0) {
-            return [
-                'status' => 'expired',
-                'message' => 'Accreditation expired ' . abs($daysUntilExpiry) . ' days ago',
-                'urgency' => 'critical'
-            ];
-        } elseif ($daysUntilExpiry <= 30) {
-            return [
-                'status' => 'expiring_soon',
-                'message' => 'Accreditation expires in ' . $daysUntilExpiry . ' days',
-                'urgency' => 'high'
-            ];
-        } elseif ($daysUntilExpiry <= 90) {
-            return [
-                'status' => 'expiring',
-                'message' => 'Accreditation expires in ' . $daysUntilExpiry . ' days',
-                'urgency' => 'medium'
-            ];
+        if (!$this->hasValidAccreditation()) {
+            return ['color' => 'yellow', 'text' => 'Accreditation Expired'];
         }
 
-        return null;
-    }
+        if (!$this->hasActiveContract()) {
+            return ['color' => 'yellow', 'text' => 'Contract Expired'];
+        }
 
-    /**
-     * Update provider rating based on recent training feedback
-     */
-    public function updateRatingFromFeedback()
-    {
-        $recentTrainings = $this->trainingRecords()
-            ->where('status', 'completed')
-            ->where('completion_date', '>=', now()->subMonths(6))
-            ->whereNotNull('score')
-            ->get();
-
-        if ($recentTrainings->isEmpty()) return;
-
-        $averageScore = $recentTrainings->avg('score');
-
-        // Convert score (0-100) to rating (0-5)
-        $newRating = ($averageScore / 100) * 5;
-
-        $this->update(['rating' => round($newRating, 2)]);
-    }
-
-    /**
-     * Search providers by name, contact person, or email
-     */
-    public function scopeSearch(Builder $query, $term)
-    {
-        return $query->where(function ($q) use ($term) {
-            $q->where('name', 'like', "%{$term}%")
-              ->orWhere('contact_person', 'like', "%{$term}%")
-              ->orWhere('email', 'like', "%{$term}%")
-              ->orWhere('code', 'like', "%{$term}%");
-        });
+        return ['color' => 'green', 'text' => 'Active'];
     }
 }

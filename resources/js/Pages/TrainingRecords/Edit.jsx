@@ -1,148 +1,121 @@
-// resources/js/Pages/TrainingRecords/Edit.jsx - PERBAIKAN LENGKAP
-
 import React, { useState, useEffect } from 'react';
+import { Head, useForm } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, useForm } from '@inertiajs/react';
 import {
     ArrowLeftIcon,
-    InformationCircleIcon,
-    ExclamationTriangleIcon,
+    PencilIcon,
     CalendarIcon,
-    DocumentIcon,
-    CheckCircleIcon,
+    AcademicCapIcon,
+    BuildingOfficeIcon,
     UserIcon,
-    TagIcon,
-    BuildingOfficeIcon, // Fixed: use correct icon name
-    ClockIcon,
-    EyeIcon
+    ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
-export default function Edit({ auth, trainingRecord, employees, trainingTypes, departments }) {
+export default function Edit({
+    auth,
+    trainingRecord,
+    employees,
+    trainingTypes,
+    trainingProviders, // ✅ Provider list
+    departments
+}) {
     const { data, setData, put, processing, errors } = useForm({
-        employee_id: trainingRecord?.employee_id || '',
-        training_type_id: trainingRecord?.training_type_id || '',
-        certificate_number: trainingRecord?.certificate_number || '',
-        issuer: trainingRecord?.issuer || '',
-        issue_date: trainingRecord?.issue_date || '',
-        expiry_date: trainingRecord?.expiry_date || '',
-        notes: trainingRecord?.notes || ''
+        employee_id: trainingRecord.employee_id || '',
+        training_type_id: trainingRecord.training_type_id || '',
+        training_provider_id: trainingRecord.training_provider_id || '', // ✅ Provider field
+        certificate_number: trainingRecord.certificate_number || '',
+        issuer: trainingRecord.issuer || '',
+        issue_date: trainingRecord.issue_date || '',
+        expiry_date: trainingRecord.expiry_date || '',
+        completion_date: trainingRecord.completion_date || '',
+        training_date: trainingRecord.training_date || '',
+        score: trainingRecord.score || '',
+        training_hours: trainingRecord.training_hours || '',
+        cost: trainingRecord.cost || '',
+        location: trainingRecord.location || '',
+        instructor_name: trainingRecord.instructor_name || '',
+        notes: trainingRecord.notes || ''
     });
 
-    const [selectedTrainingType, setSelectedTrainingType] = useState(null);
-    const [calculatedExpiry, setCalculatedExpiry] = useState('');
-    const [hasChanges, setHasChanges] = useState(false);
+    const [isExpired, setIsExpired] = useState(false);
+    const [isExpiringSoon, setIsExpiringSoon] = useState(false);
 
-    // Initialize selected training type
+    // Check certificate status
     useEffect(() => {
-        if (data.training_type_id && trainingTypes) {
-            const type = trainingTypes.find(t => t.id == data.training_type_id);
-            setSelectedTrainingType(type);
+        if (data.expiry_date) {
+            const expiryDate = new Date(data.expiry_date);
+            const now = new Date();
+            const thirtyDaysFromNow = new Date();
+            thirtyDaysFromNow.setDate(now.getDate() + 30);
+
+            setIsExpired(expiryDate < now);
+            setIsExpiringSoon(!isExpired && expiryDate <= thirtyDaysFromNow);
         }
-    }, [data.training_type_id, trainingTypes]);
+    }, [data.expiry_date]);
 
-    // Calculate expiry date when training type or issue date changes
-    useEffect(() => {
-        if (data.training_type_id && data.issue_date && trainingTypes) {
-            const type = trainingTypes.find(t => t.id == data.training_type_id);
-            if (type && type.validity_months) {
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        put(route('training-records.update', trainingRecord.id));
+    };
+
+    // Handle provider selection and auto-fill issuer
+    const handleProviderChange = (providerId) => {
+        setData('training_provider_id', providerId);
+
+        // Auto-fill issuer based on selected provider (but only if current issuer matches provider name)
+        const selectedProvider = trainingProviders.find(p => p.id == providerId);
+        const currentProvider = trainingProviders.find(p => p.id == data.training_provider_id);
+
+        if (selectedProvider && (!data.issuer || data.issuer === currentProvider?.name)) {
+            setData(prev => ({
+                ...prev,
+                training_provider_id: providerId,
+                issuer: selectedProvider.name
+            }));
+        } else {
+            setData('training_provider_id', providerId);
+        }
+    };
+
+    // Calculate expiry date based on training type validity
+    const handleTrainingTypeChange = (trainingTypeId) => {
+        setData('training_type_id', trainingTypeId);
+
+        // Only auto-calculate expiry date if issue date is set and expiry is not manually set
+        if (data.issue_date && trainingTypeId && !data.expiry_date) {
+            const selectedType = trainingTypes.find(t => t.id == trainingTypeId);
+            if (selectedType && selectedType.validity_months) {
                 const issueDate = new Date(data.issue_date);
                 const expiryDate = new Date(issueDate);
-                expiryDate.setMonth(expiryDate.getMonth() + type.validity_months);
-                const formattedExpiry = expiryDate.toISOString().split('T')[0];
-                setCalculatedExpiry(formattedExpiry);
+                expiryDate.setMonth(expiryDate.getMonth() + selectedType.validity_months);
+
+                setData(prev => ({
+                    ...prev,
+                    training_type_id: trainingTypeId,
+                    expiry_date: expiryDate.toISOString().split('T')[0]
+                }));
             }
         }
-    }, [data.training_type_id, data.issue_date, trainingTypes]);
-
-    // Track changes
-    useEffect(() => {
-        if (!trainingRecord) return;
-
-        const originalData = {
-            employee_id: trainingRecord.employee_id,
-            training_type_id: trainingRecord.training_type_id,
-            certificate_number: trainingRecord.certificate_number,
-            issuer: trainingRecord.issuer,
-            issue_date: trainingRecord.issue_date,
-            expiry_date: trainingRecord.expiry_date,
-            notes: trainingRecord.notes || ''
-        };
-
-        const currentData = { ...data };
-        const changed = JSON.stringify(originalData) !== JSON.stringify(currentData);
-        setHasChanges(changed);
-    }, [data, trainingRecord]);
-
-    const submit = (e) => {
-        e.preventDefault();
-        if (processing) return;
-
-        console.log('Submitting edit form with data:', data);
-        put(route('training-records.update', trainingRecord?.id));
     };
-
-    const getSelectedEmployee = () => {
-        if (!employees || !data.employee_id) return null;
-        return employees.find(emp => emp.id == data.employee_id);
-    };
-
-    const getCategoryColor = (category) => {
-        const colors = {
-            safety: 'bg-red-100 text-red-800',
-            operational: 'bg-blue-100 text-blue-800',
-            security: 'bg-purple-100 text-purple-800',
-            technical: 'bg-green-100 text-green-800'
-        };
-        return colors[category] || 'bg-gray-100 text-gray-800';
-    };
-
-    // PERBAIKAN: Safety check untuk trainingRecord
-    if (!trainingRecord) {
-        return (
-            <AuthenticatedLayout user={auth.user}>
-                <Head title="Training Record Not Found" />
-                <div className="py-12">
-                    <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                        <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
-                            <div className="p-6 bg-white border-b border-gray-200">
-                                <div className="text-center">
-                                    <ExclamationTriangleIcon className="w-12 h-12 mx-auto text-yellow-400 mb-4" />
-                                    <h3 className="text-lg font-medium text-gray-900 mb-2">Training Record Not Found</h3>
-                                    <p className="text-sm text-gray-500 mb-4">The training record you're looking for doesn't exist.</p>
-                                    <Link
-                                        href={route('training-records.index')}
-                                        className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700"
-                                    >
-                                        <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                                        Back to Training Records
-                                    </Link>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </AuthenticatedLayout>
-        );
-    }
 
     return (
         <AuthenticatedLayout
             user={auth.user}
             header={
                 <div className="flex items-center space-x-4">
-                    <Link
-                        href={route('training-records.index')}
-                        className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    <button
+                        onClick={() => window.history.back()}
+                        className="inline-flex items-center text-gray-600 hover:text-gray-900"
                     >
-                        <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                        Back to Training Records
-                    </Link>
+                        <ArrowLeftIcon className="w-5 h-5 mr-1" />
+                        Back
+                    </button>
                     <div>
                         <h2 className="font-semibold text-xl text-gray-800 leading-tight">
                             Edit Training Record
                         </h2>
-                        <p className="text-sm text-gray-600">
-                            {trainingRecord?.certificate_number || 'Unknown Certificate'}
+                        <p className="text-sm text-gray-600 mt-1">
+                            Update training certificate record for {trainingRecord.employee?.name}
                         </p>
                     </div>
                 </div>
@@ -152,17 +125,25 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes, d
 
             <div className="py-12">
                 <div className="max-w-4xl mx-auto sm:px-6 lg:px-8">
-
-                    {/* Status Alert */}
-                    {hasChanges && (
-                        <div className="mb-6">
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                                <div className="flex">
-                                    <InformationCircleIcon className="w-5 h-5 text-yellow-400 mr-2" />
-                                    <div>
-                                        <h4 className="text-sm font-medium text-yellow-800">Unsaved Changes</h4>
-                                        <p className="text-sm text-yellow-700 mt-1">
-                                            You have unsaved changes. Please save or discard them.
+                    {/* Certificate Status Alert */}
+                    {(isExpired || isExpiringSoon) && (
+                        <div className={`rounded-md p-4 mb-6 ${isExpired ? 'bg-red-50 border border-red-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <ExclamationTriangleIcon
+                                        className={`h-5 w-5 ${isExpired ? 'text-red-400' : 'text-yellow-400'}`}
+                                        aria-hidden="true"
+                                    />
+                                </div>
+                                <div className="ml-3">
+                                    <h3 className={`text-sm font-medium ${isExpired ? 'text-red-800' : 'text-yellow-800'}`}>
+                                        {isExpired ? 'Certificate Expired' : 'Certificate Expiring Soon'}
+                                    </h3>
+                                    <div className={`mt-2 text-sm ${isExpired ? 'text-red-700' : 'text-yellow-700'}`}>
+                                        <p>
+                                            This certificate {isExpired ? 'expired' : 'expires'} on{' '}
+                                            {new Date(data.expiry_date).toLocaleDateString()}.
+                                            {isExpired ? ' Consider renewing it.' : ' Please plan for renewal.'}
                                         </p>
                                     </div>
                                 </div>
@@ -170,159 +151,127 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes, d
                         </div>
                     )}
 
-                    <form onSubmit={submit} className="space-y-8">
-
-                        {/* Employee Information */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
-                                    <UserIcon className="w-5 h-5 mr-2 text-green-600" />
-                                    Employee Information
-                                </h3>
+                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div className="p-6">
+                            {/* Header */}
+                            <div className="flex items-center mb-6">
+                                <PencilIcon className="w-6 h-6 text-green-600 mr-3" />
+                                <h3 className="text-lg font-medium text-gray-900">Edit Training Record Details</h3>
                             </div>
-                            <div className="px-6 py-4 space-y-6">
-                                {/* Current Employee */}
-                                {trainingRecord?.employee && (
-                                    <div className="bg-gray-50 rounded-lg p-4">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center">
-                                                <div className="flex-shrink-0 h-10 w-10">
-                                                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">
-                                                        <span className="text-sm font-medium text-green-800">
-                                                            {trainingRecord.employee?.name?.charAt(0) || '?'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <div className="ml-4">
-                                                    <div className="text-sm font-medium text-gray-900">
-                                                        {trainingRecord.employee?.name || 'Unknown Employee'}
-                                                    </div>
-                                                    <div className="text-sm text-gray-500">
-                                                        {trainingRecord.employee?.employee_id || 'No ID'} •
-                                                        {trainingRecord.employee?.department?.name || 'No Department'} •
-                                                        {trainingRecord.employee?.position || 'No Position'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {trainingRecord.employee?.id && (
-                                                <Link
-                                                    href={route('employees.show', trainingRecord.employee.id)}
-                                                    className="text-green-600 hover:text-green-900"
-                                                >
-                                                    <EyeIcon className="w-5 h-5" />
-                                                </Link>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
 
-                                {/* Employee Change */}
-                                <div>
-                                    <label htmlFor="employee_id" className="block text-sm font-medium text-gray-700">
-                                        Change Employee (Advanced)
-                                    </label>
-                                    <div className="mt-1">
+                            <form onSubmit={handleSubmit} className="space-y-6">
+                                {/* Employee & Training Info Section */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Employee Selection */}
+                                    <div>
+                                        <label htmlFor="employee_id" className="block text-sm font-medium text-gray-700 mb-2">
+                                            <UserIcon className="w-4 h-4 inline mr-1" />
+                                            Employee *
+                                        </label>
                                         <select
                                             id="employee_id"
                                             value={data.employee_id}
                                             onChange={(e) => setData('employee_id', e.target.value)}
-                                            className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.employee_id ? 'border-red-300' : ''
-                                            }`}
+                                            required
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.employee_id ? 'border-red-300' : ''}`}
                                         >
-                                            {employees && employees.map(employee => (
+                                            <option value="">Select Employee</option>
+                                            {employees && employees.map((employee) => (
                                                 <option key={employee.id} value={employee.id}>
-                                                    {employee.name} ({employee.employee_id}) - {employee.department?.name || 'No Department'}
+                                                    {employee.employee_id} - {employee.name}
+                                                    {employee.department && ` (${employee.department.name})`}
                                                 </option>
                                             ))}
                                         </select>
+                                        {errors.employee_id && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.employee_id}</p>
+                                        )}
                                     </div>
-                                    {data.employee_id != trainingRecord?.employee_id && (
-                                        <p className="mt-1 text-xs text-yellow-600">
-                                            ⚠️ Changing employee will transfer this certificate
-                                        </p>
-                                    )}
-                                    {errors.employee_id && (
-                                        <p className="mt-2 text-sm text-red-600">{errors.employee_id}</p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
 
-                        {/* Training Type */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
-                                    <TagIcon className="w-5 h-5 mr-2 text-green-600" />
-                                    Training Type
-                                </h3>
-                            </div>
-                            <div className="px-6 py-4 space-y-6">
-                                <div>
-                                    <label htmlFor="training_type_id" className="block text-sm font-medium text-gray-700">
-                                        Training Type *
-                                    </label>
-                                    <div className="mt-1">
+                                    {/* Training Type */}
+                                    <div>
+                                        <label htmlFor="training_type_id" className="block text-sm font-medium text-gray-700 mb-2">
+                                            <AcademicCapIcon className="w-4 h-4 inline mr-1" />
+                                            Training Type *
+                                        </label>
                                         <select
                                             id="training_type_id"
                                             value={data.training_type_id}
-                                            onChange={(e) => setData('training_type_id', e.target.value)}
-                                            className={`block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.training_type_id ? 'border-red-300' : ''
-                                            }`}
+                                            onChange={(e) => handleTrainingTypeChange(e.target.value)}
                                             required
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.training_type_id ? 'border-red-300' : ''}`}
                                         >
                                             <option value="">Select Training Type</option>
                                             {trainingTypes && trainingTypes.map((type) => (
                                                 <option key={type.id} value={type.id}>
-                                                    {type.name}
+                                                    {type.name} ({type.code})
+                                                    {type.validity_months && ` - Valid for ${type.validity_months} months`}
                                                 </option>
                                             ))}
                                         </select>
+                                        {errors.training_type_id && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.training_type_id}</p>
+                                        )}
                                     </div>
-                                    {errors.training_type_id && (
-                                        <p className="mt-2 text-sm text-red-600">{errors.training_type_id}</p>
-                                    )}
                                 </div>
 
-                                {/* Training Type Info */}
-                                {selectedTrainingType && (
-                                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                                        <div className="flex items-start">
-                                            <div className="flex-shrink-0">
-                                                <TagIcon className="w-5 h-5 text-blue-600" />
-                                            </div>
-                                            <div className="ml-3">
-                                                <h4 className="text-sm font-medium text-blue-900">
-                                                    {selectedTrainingType.name}
-                                                </h4>
-                                                <div className="mt-2 text-sm text-blue-700">
-                                                    <p><strong>Code:</strong> {selectedTrainingType.code}</p>
-                                                    <p><strong>Validity:</strong> {selectedTrainingType.validity_months} months</p>
-                                                    {calculatedExpiry && (
-                                                        <p><strong>Calculated Expiry:</strong> {new Date(calculatedExpiry).toLocaleDateString()}</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
+                                {/* ✅ Provider & Issuer Section */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Training Provider Dropdown */}
+                                    <div>
+                                        <label htmlFor="training_provider_id" className="block text-sm font-medium text-gray-700 mb-2">
+                                            <BuildingOfficeIcon className="w-4 h-4 inline mr-1" />
+                                            Training Provider
+                                        </label>
+                                        <select
+                                            id="training_provider_id"
+                                            value={data.training_provider_id}
+                                            onChange={(e) => handleProviderChange(e.target.value)}
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.training_provider_id ? 'border-red-300' : ''}`}
+                                        >
+                                            <option value="">Select Provider (Optional)</option>
+                                            {trainingProviders && trainingProviders.map((provider) => (
+                                                <option key={provider.id} value={provider.id}>
+                                                    {provider.code ? `${provider.code} - ${provider.name}` : provider.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {errors.training_provider_id && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.training_provider_id}</p>
+                                        )}
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Current provider: {trainingRecord.training_provider?.name || 'None selected'}
+                                        </p>
                                     </div>
-                                )}
-                            </div>
-                        </div>
 
-                        {/* Certificate Details */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg leading-6 font-medium text-gray-900 flex items-center">
-                                    <DocumentIcon className="w-5 h-5 mr-2 text-green-600" />
-                                    Certificate Details
-                                </h3>
-                            </div>
-                            <div className="px-6 py-4 space-y-6">
-                                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                                    {/* Issuer (Auto-filled from provider or manual input) */}
+                                    <div>
+                                        <label htmlFor="issuer" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Certificate Issuer *
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="issuer"
+                                            value={data.issuer}
+                                            onChange={(e) => setData('issuer', e.target.value)}
+                                            required
+                                            placeholder="Organization that issued the certificate"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.issuer ? 'border-red-300' : ''}`}
+                                        />
+                                        {errors.issuer && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.issuer}</p>
+                                        )}
+                                        <p className="mt-1 text-xs text-gray-500">
+                                            Auto-filled when provider is selected, or enter manually
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Certificate Information */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {/* Certificate Number */}
                                     <div>
-                                        <label htmlFor="certificate_number" className="block text-sm font-medium text-gray-700">
+                                        <label htmlFor="certificate_number" className="block text-sm font-medium text-gray-700 mb-2">
                                             Certificate Number *
                                         </label>
                                         <input
@@ -330,41 +279,43 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes, d
                                             id="certificate_number"
                                             value={data.certificate_number}
                                             onChange={(e) => setData('certificate_number', e.target.value)}
-                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.certificate_number ? 'border-red-300' : ''
-                                            }`}
                                             required
+                                            placeholder="e.g., MPGA-2024-001"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.certificate_number ? 'border-red-300' : ''}`}
                                         />
                                         {errors.certificate_number && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.certificate_number}</p>
+                                            <p className="mt-1 text-sm text-red-600">{errors.certificate_number}</p>
                                         )}
                                     </div>
 
-                                    {/* Issuer */}
+                                    {/* Score */}
                                     <div>
-                                        <label htmlFor="issuer" className="block text-sm font-medium text-gray-700">
-                                            Issued By *
+                                        <label htmlFor="score" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Training Score
                                         </label>
                                         <input
-                                            type="text"
-                                            id="issuer"
-                                            value={data.issuer}
-                                            onChange={(e) => setData('issuer', e.target.value)}
-                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.issuer ? 'border-red-300' : ''
-                                            }`}
-                                            required
+                                            type="number"
+                                            id="score"
+                                            value={data.score}
+                                            onChange={(e) => setData('score', e.target.value)}
+                                            min="0"
+                                            max="100"
+                                            step="0.01"
+                                            placeholder="0-100"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.score ? 'border-red-300' : ''}`}
                                         />
-                                        {errors.issuer && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.issuer}</p>
+                                        {errors.score && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.score}</p>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                                {/* Dates Section */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     {/* Issue Date */}
                                     <div>
-                                        <label htmlFor="issue_date" className="block text-sm font-medium text-gray-700">
+                                        <label htmlFor="issue_date" className="block text-sm font-medium text-gray-700 mb-2">
+                                            <CalendarIcon className="w-4 h-4 inline mr-1" />
                                             Issue Date *
                                         </label>
                                         <input
@@ -372,45 +323,136 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes, d
                                             id="issue_date"
                                             value={data.issue_date}
                                             onChange={(e) => setData('issue_date', e.target.value)}
-                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.issue_date ? 'border-red-300' : ''
-                                            }`}
                                             required
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.issue_date ? 'border-red-300' : ''}`}
                                         />
                                         {errors.issue_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.issue_date}</p>
+                                            <p className="mt-1 text-sm text-red-600">{errors.issue_date}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Training Date */}
+                                    <div>
+                                        <label htmlFor="training_date" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Training Date
+                                        </label>
+                                        <input
+                                            type="date"
+                                            id="training_date"
+                                            value={data.training_date}
+                                            onChange={(e) => setData('training_date', e.target.value)}
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.training_date ? 'border-red-300' : ''}`}
+                                        />
+                                        {errors.training_date && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.training_date}</p>
                                         )}
                                     </div>
 
                                     {/* Expiry Date */}
                                     <div>
-                                        <label htmlFor="expiry_date" className="block text-sm font-medium text-gray-700">
-                                            Expiry Date *
+                                        <label htmlFor="expiry_date" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Expiry Date
+                                            {(isExpired || isExpiringSoon) && (
+                                                <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${isExpired ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                                    {isExpired ? 'Expired' : 'Expiring Soon'}
+                                                </span>
+                                            )}
                                         </label>
                                         <input
                                             type="date"
                                             id="expiry_date"
                                             value={data.expiry_date}
                                             onChange={(e) => setData('expiry_date', e.target.value)}
-                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${
-                                                errors.expiry_date ? 'border-red-300' : ''
-                                            }`}
-                                            required
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.expiry_date ? 'border-red-300' : ''} ${isExpired ? 'border-red-300' : isExpiringSoon ? 'border-yellow-300' : ''}`}
                                         />
                                         {errors.expiry_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.expiry_date}</p>
-                                        )}
-                                        {calculatedExpiry && calculatedExpiry !== data.expiry_date && (
-                                            <p className="mt-1 text-xs text-blue-600">
-                                                💡 Suggested expiry based on training type: {new Date(calculatedExpiry).toLocaleDateString()}
-                                            </p>
+                                            <p className="mt-1 text-sm text-red-600">{errors.expiry_date}</p>
                                         )}
                                     </div>
                                 </div>
 
+                                {/* Additional Information */}
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                    {/* Training Hours */}
+                                    <div>
+                                        <label htmlFor="training_hours" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Training Hours
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="training_hours"
+                                            value={data.training_hours}
+                                            onChange={(e) => setData('training_hours', e.target.value)}
+                                            min="0"
+                                            step="0.5"
+                                            placeholder="e.g., 8.5"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.training_hours ? 'border-red-300' : ''}`}
+                                        />
+                                        {errors.training_hours && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.training_hours}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Cost */}
+                                    <div>
+                                        <label htmlFor="cost" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Training Cost (IDR)
+                                        </label>
+                                        <input
+                                            type="number"
+                                            id="cost"
+                                            value={data.cost}
+                                            onChange={(e) => setData('cost', e.target.value)}
+                                            min="0"
+                                            step="1000"
+                                            placeholder="e.g., 2500000"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.cost ? 'border-red-300' : ''}`}
+                                        />
+                                        {errors.cost && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.cost}</p>
+                                        )}
+                                    </div>
+
+                                    {/* Location */}
+                                    <div>
+                                        <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-2">
+                                            Training Location
+                                        </label>
+                                        <input
+                                            type="text"
+                                            id="location"
+                                            value={data.location}
+                                            onChange={(e) => setData('location', e.target.value)}
+                                            placeholder="e.g., Jakarta Training Center"
+                                            className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.location ? 'border-red-300' : ''}`}
+                                        />
+                                        {errors.location && (
+                                            <p className="mt-1 text-sm text-red-600">{errors.location}</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Instructor Name */}
+                                <div>
+                                    <label htmlFor="instructor_name" className="block text-sm font-medium text-gray-700 mb-2">
+                                        Instructor Name
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="instructor_name"
+                                        value={data.instructor_name}
+                                        onChange={(e) => setData('instructor_name', e.target.value)}
+                                        placeholder="Name of the training instructor"
+                                        className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.instructor_name ? 'border-red-300' : ''}`}
+                                    />
+                                    {errors.instructor_name && (
+                                        <p className="mt-1 text-sm text-red-600">{errors.instructor_name}</p>
+                                    )}
+                                </div>
+
                                 {/* Notes */}
                                 <div>
-                                    <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+                                    <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">
                                         Notes
                                     </label>
                                     <textarea
@@ -418,73 +460,34 @@ export default function Edit({ auth, trainingRecord, employees, trainingTypes, d
                                         rows={3}
                                         value={data.notes}
                                         onChange={(e) => setData('notes', e.target.value)}
-                                        className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm"
-                                        placeholder="Additional notes about this training..."
+                                        placeholder="Additional notes about the training..."
+                                        className={`mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm ${errors.notes ? 'border-red-300' : ''}`}
                                     />
                                     {errors.notes && (
-                                        <p className="mt-2 text-sm text-red-600">{errors.notes}</p>
+                                        <p className="mt-1 text-sm text-red-600">{errors.notes}</p>
                                     )}
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Form Actions */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4">
-                                <div className="flex items-center justify-end space-x-4">
-                                    <Link
-                                        href={route('training-records.index')}
-                                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                {/* Submit Buttons */}
+                                <div className="flex items-center justify-end space-x-3 pt-6 border-t border-gray-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => window.history.back()}
+                                        className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                                     >
                                         Cancel
-                                    </Link>
-                                    <Link
-                                        href={route('training-records.show', trainingRecord?.id)}
-                                        className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                                    >
-                                        <EyeIcon className="w-4 h-4 mr-2" />
-                                        View Details
-                                    </Link>
+                                    </button>
                                     <button
                                         type="submit"
-                                        disabled={processing || !hasChanges}
+                                        disabled={processing}
                                         className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {processing ? (
-                                            <>
-                                                <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                </svg>
-                                                Updating...
-                                            </>
-                                        ) : hasChanges ? (
-                                            <>
-                                                <CheckCircleIcon className="w-4 h-4 mr-2" />
-                                                Update Training Record
-                                            </>
-                                        ) : (
-                                            'No Changes to Save'
-                                        )}
+                                        {processing ? 'Updating...' : 'Update Training Record'}
                                     </button>
                                 </div>
-                            </div>
+                            </form>
                         </div>
-
-                        {/* Debug Info in Development */}
-                        {process.env.NODE_ENV === 'development' && (
-                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                                <h4 className="text-sm font-medium text-yellow-800">Debug Information</h4>
-                                <pre className="text-xs text-yellow-700 mt-2">
-                                    Form Data: {JSON.stringify(data, null, 2)}
-                                </pre>
-                                <pre className="text-xs text-yellow-700 mt-2">
-                                    Has Changes: {hasChanges.toString()}
-                                </pre>
-                            </div>
-                        )}
-
-                    </form>
+                    </div>
                 </div>
             </div>
         </AuthenticatedLayout>
