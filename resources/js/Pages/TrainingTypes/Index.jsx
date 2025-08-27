@@ -128,6 +128,40 @@ const TrainingTypesIndex = ({
         { name: 'Low', value: 5, color: RISK_COLORS.low }
     ];
 
+    const deleteTrainingType = (trainingType) => {
+    const confirmMessage = `⚠️ HAPUS Training Type "${trainingType.name}"?\n\n` +
+                          `📊 INFO TRAINING TYPE:\n` +
+                          `• Kategori: ${trainingType.category}\n` +
+                          `• Kode: ${trainingType.code}\n` +
+                          `• Status: ${trainingType.is_active ? 'Active' : 'Inactive'}\n\n` +
+                          `⚠️ PERINGATAN:\n` +
+                          `• Tindakan ini TIDAK DAPAT dibatalkan\n` +
+                          `• Training type hanya bisa dihapus jika TIDAK ada training records yang terkait\n\n` +
+                          `💡 ALTERNATIF: Klik toggle status untuk non-aktifkan saja\n\n` +
+                          `Lanjutkan hapus?`;
+
+    if (confirm(confirmMessage)) {
+        router.delete(route('training-types.destroy', trainingType.id), {
+            onError: (errors) => {
+                let errorMessage = 'Terjadi kesalahan tidak diketahui';
+
+                if (typeof errors === 'object' && errors.message) {
+                    errorMessage = errors.message;
+                } else if (typeof errors === 'string') {
+                    errorMessage = errors;
+                } else if (typeof errors === 'object') {
+                    errorMessage = Object.values(errors).join('\n');
+                }
+
+                alert(errorMessage);
+            }
+        });
+    }
+};
+
+
+
+
     return (
         <AuthenticatedLayout user={auth.user}>
             <Head title="Training Type Management" />

@@ -87,6 +87,9 @@ Route::middleware('auth')->group(function () {
         Route::put('/{trainingType}', [TrainingTypeController::class, 'update'])->name('update');
         Route::delete('/{trainingType}', [TrainingTypeController::class, 'destroy'])->name('destroy');
 
+        // ⭐ TAMBAHKAN ROUTE INI UNTUK FIX DELETE PROBLEM
+        Route::post('/{trainingType}/toggle-status', [TrainingTypeController::class, 'toggleStatus'])->name('toggle-status');
+
         // Existing routes (keep these)
         Route::get('/{trainingType}/statistics', [TrainingTypeController::class, 'getStatistics'])
             ->name('statistics');

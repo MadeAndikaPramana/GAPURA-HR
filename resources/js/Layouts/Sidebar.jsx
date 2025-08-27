@@ -56,14 +56,13 @@ export default function Sidebar({ user, mobile = false }) {
             section: 'config',
             title: 'Configuration',
             items: [
-                // 🚀 ADD THIS: Training Types menu item
                 {
                     name: 'Training Types',
                     href: route('training-types.index'),
                     icon: TagIcon,
                     current: route().current('training-types.*'),
                     description: 'Master jenis pelatihan',
-                    roles: ['super_admin', 'admin'] // Allow both admin and super_admin
+                    roles: ['super_admin']
                 },
                 {
                     name: 'Training Providers',
@@ -71,16 +70,9 @@ export default function Sidebar({ user, mobile = false }) {
                     icon: BuildingOfficeIcon,
                     current: route().current('training-providers.*'),
                     description: 'Penyedia layanan training',
-                    roles: ['super_admin', 'admin']
-                },
-                {
-                    name: 'Departments',
-                    href: route('departments.index'),
-                    icon: BuildingOfficeIcon,
-                    current: route().current('departments.*'),
-                    description: 'Manajemen departemen',
                     roles: ['super_admin']
                 }
+                // ❌ REMOVED: Department menu
             ]
         },
 
@@ -101,9 +93,9 @@ export default function Sidebar({ user, mobile = false }) {
                 },
                 {
                     name: 'Import/Export',
-                    href: route('import-export.index'),
+                    href: route('system.templates'),
                     icon: DocumentArrowDownIcon,
-                    current: route().current('import-export.*'),
+                    current: route().current('system.templates*'),
                     description: 'Template dan import data',
                     roles: ['admin', 'super_admin']
                 }
@@ -129,9 +121,8 @@ export default function Sidebar({ user, mobile = false }) {
 
     const hasRole = (roles) => {
         if (!roles || roles.length === 0) return true;
-        // For now, let's assume user has access (since role system might not be fully implemented)
-        return true;
-        // return roles.includes(user?.role);
+        // For now, assume super_admin role for development
+        return true; // TODO: Implement proper role checking
     };
 
     const getBadgeClasses = (color) => {
@@ -168,68 +159,68 @@ export default function Sidebar({ user, mobile = false }) {
                                 </h3>
                             </div>
                         )}
-                        <div className={section.title ? 'space-y-1' : ''}>
-                            {section.items.map((item) => {
-                                // Check if user has required role
-                                if (!hasRole(item.roles)) {
-                                    return null;
-                                }
+                        <div className={section.title ? 'space-y-1' : 'space-y-2'}>
+                            {section.items
+                                .filter(item => hasRole(item.roles))
+                                .map((item) => {
+                                    const isActive = item.current;
 
-                                return (
-                                    <Link
-                                        key={item.name}
-                                        href={item.href}
-                                        className={`group flex items-center px-3 py-2 text-sm font-medium rounded-md transition-colors duration-150 ease-in-out ${
-                                            item.current
-                                                ? 'bg-green-600 text-white shadow-sm'
-                                                : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                                        }`}
-                                    >
-                                        <item.icon
-                                            className={`flex-shrink-0 h-5 w-5 mr-3 transition-colors duration-150 ease-in-out ${
-                                                item.current
-                                                    ? 'text-green-200'
-                                                    : 'text-gray-400 group-hover:text-gray-300'
+                                    return (
+                                        <Link
+                                            key={item.name}
+                                            href={item.href}
+                                            className={`group flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-all duration-200 ${
+                                                isActive
+                                                    ? 'bg-green-600 text-white shadow-md'
+                                                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                                             }`}
-                                        />
-                                        <div className="flex-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="truncate">{item.name}</span>
-                                                {item.badge && (
-                                                    <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getBadgeClasses(item.badgeColor)}`}>
-                                                        {item.badge}
-                                                    </span>
+                                        >
+                                            <item.icon
+                                                className={`flex-shrink-0 w-5 h-5 mr-3 transition-colors duration-200 ${
+                                                    isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'
+                                                }`}
+                                                aria-hidden="true"
+                                            />
+                                            <div className="flex-1">
+                                                <div className="flex items-center justify-between">
+                                                    <span>{item.name}</span>
+                                                    {item.badge && (
+                                                        <span
+                                                            className={`px-2 py-1 text-xs font-medium rounded-full ${getBadgeClasses(
+                                                                item.badgeColor
+                                                            )}`}
+                                                        >
+                                                            {item.badge}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {item.description && (
+                                                    <p className="text-xs text-gray-400 mt-0.5 group-hover:text-gray-300">
+                                                        {item.description}
+                                                    </p>
                                                 )}
                                             </div>
-                                            {item.description && (
-                                                <div className={`text-xs mt-0.5 ${
-                                                    item.current ? 'text-green-100' : 'text-gray-500'
-                                                }`}>
-                                                    {item.description}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </Link>
-                                );
-                            })}
+                                        </Link>
+                                    );
+                                })}
                         </div>
                     </div>
                 ))}
             </nav>
 
-            {/* User Info Footer */}
-            <div className="flex-shrink-0 p-4 border-t border-gray-700">
+            {/* Footer */}
+            <div className="flex-shrink-0 px-4 py-4 border-t border-gray-700">
                 <div className="flex items-center">
                     <div className="flex-shrink-0">
-                        <div className="h-10 w-10 bg-green-600 rounded-full flex items-center justify-center">
+                        <div className="h-8 w-8 rounded-full bg-green-600 flex items-center justify-center">
                             <span className="text-sm font-medium text-white">
                                 {user?.name?.charAt(0)?.toUpperCase() || 'G'}
                             </span>
                         </div>
                     </div>
-                    <div className="ml-3 flex-1 min-w-0">
+                    <div className="ml-3">
                         <p className="text-sm font-medium text-white truncate">
-                            GAPURA Super Admin
+                            {user?.name || 'GAPURA Super Admin'}
                         </p>
                         <p className="text-xs text-gray-400 truncate">
                             {user?.email || 'admin@gapura.com'}

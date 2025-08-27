@@ -225,30 +225,77 @@ class TrainingTypeController extends Controller
      * Delete training type
      */
     public function destroy(TrainingType $trainingType)
-    {
-        // Check if training type has associated records
-        $recordCount = $trainingType->trainingRecords()->count();
+{
+    try {
+        // Check if training type has training records
+        $recordsCount = $trainingType->trainingRecords()->count();
 
-        if ($recordCount > 0) {
-            return back()->withErrors([
-                'general' => "Tidak dapat menghapus training type '{$trainingType->name}' karena memiliki {$recordCount} training records."
+        if ($recordsCount > 0) {
+            $errorMessage = "Tidak dapat menghapus training type \"{$trainingType->name}\" karena memiliki {$recordsCount} training record(s). Hapus training records terlebih dahulu atau non-aktifkan training type ini.";
+
+            // Return JSON response for AJAX requests
+            if (request()->expectsJson() || request()->wantsJson()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $errorMessage,
+                    'records_count' => $recordsCount
+                ], 422);
+            }
+
+            return redirect()->route('training-types.index')
+                ->with('error', $errorMessage);
+        }
+
+        // Log the delete action
+        \Log::info('TrainingType Delete Attempt', [
+            'training_type_id' => $trainingType->id,
+            'training_type_name' => $trainingType->name,
+            'user_id' => auth()->id(),
+            'records_count' => $recordsCount
+        ]);
+
+        $trainingTypeName = $trainingType->name;
+        $trainingType->delete();
+
+        \Log::info('TrainingType Deleted Successfully', [
+            'training_type_name' => $trainingTypeName,
+            'user_id' => auth()->id()
+        ]);
+
+        // Return JSON response for AJAX requests
+        if (request()->expectsJson() || request()->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Training type \"{$trainingTypeName}\" berhasil dihapus.",
+                'redirect' => route('training-types.index')
             ]);
         }
 
-        try {
-            $name = $trainingType->name;
-            $trainingType->delete();
+        return redirect()->route('training-types.index')
+            ->with('success', "Training type \"{$trainingTypeName}\" berhasil dihapus.");
 
-            return redirect()
-                ->route('training-types.index')
-                ->with('success', "Training type '{$name}' berhasil dihapus!");
+    } catch (\Exception $e) {
+        $errorMessage = 'Gagal menghapus training type: ' . $e->getMessage();
 
-        } catch (\Exception $e) {
-            return back()->withErrors([
-                'general' => 'Gagal menghapus training type: ' . $e->getMessage()
-            ]);
+        \Log::error('TrainingType Delete Error', [
+            'training_type_id' => $trainingType->id,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+            'user_id' => auth()->id()
+        ]);
+
+        // Return JSON response for AJAX requests
+        if (request()->expectsJson() || request()->wantsJson()) {
+            return response()->json([
+                'success' => false,
+                'message' => $errorMessage
+            ], 500);
         }
+
+        return redirect()->route('training-types.index')
+            ->with('error', $errorMessage);
     }
+}
 
     /**
      * Get category options

@@ -1,357 +1,340 @@
+// resources/js/Pages/TrainingTypes/Show.jsx
 import React from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router } from '@inertiajs/react';
 import {
-    ArrowLeft, Edit, Trash2, Users, Clock, DollarSign,
-    Award, AlertTriangle, CheckCircle, BookOpen, Building2,
-    Calendar, User, FileText
-} from 'lucide-react';
+    ArrowLeftIcon,
+    PencilIcon,
+    TrashIcon,
+    TagIcon,
+    ClipboardDocumentListIcon,
+    UserGroupIcon,
+    ChartBarIcon,
+    ExclamationTriangleIcon,
+    CheckCircleIcon,
+    XCircleIcon
+} from '@heroicons/react/24/outline';
 
-const ShowTrainingType = ({
-    auth,
-    trainingType,
-    complianceRate = 0,
-    stats = {},
-    departmentBreakdown = []
-}) => {
-    const handleEdit = () => {
-        router.get(route('training-types.edit', trainingType.id));
-    };
+export default function Show({ auth, trainingType, stats, recordsByStatus, recentRecords, employeesByDepartment }) {
 
+    // ⭐ FUNCTION DELETE YANG BENAR
     const handleDelete = () => {
-        if (confirm(`Are you sure you want to delete "${trainingType.name}"? This action cannot be undone.`)) {
-            router.delete(route('training-types.destroy', trainingType.id), {
-                onSuccess: () => {
-                    router.get(route('training-types.index'));
+    // Konfirmasi yang lebih informatif
+    const confirmMessage = `⚠️ PERINGATAN: Hapus Training Type "${trainingType.name}"?\n\n` +
+                          `Tindakan ini akan:\n` +
+                          `• Menghapus training type secara PERMANEN\n` +
+                          `• TIDAK DAPAT dibatalkan\n\n` +
+                          `📋 PERSYARATAN:\n` +
+                          `Training type hanya bisa dihapus jika TIDAK ada karyawan yang memiliki training record dengan type ini.\n\n` +
+                          `Lanjutkan hapus?`;
+
+    if (confirm(confirmMessage)) {
+        console.log('Sending DELETE request to:', route('training-types.destroy', trainingType.id));
+
+        router.delete(route('training-types.destroy', trainingType.id), {
+            onStart: () => {
+                console.log('Delete request started');
+            },
+            onSuccess: (response) => {
+                console.log('Delete successful:', response);
+                // Success akan otomatis redirect ke index dengan flash message
+            },
+            onError: (errors) => {
+                console.error('Delete failed:', errors);
+
+                // Handle error response dengan pesan yang lebih informatif
+                let errorMessage = 'Terjadi kesalahan tidak diketahui';
+
+                // Handle different types of error responses
+                if (typeof errors === 'object') {
+                    if (errors.message) {
+                        // Direct message from backend
+                        errorMessage = errors.message;
+                    } else if (errors.errors && typeof errors.errors === 'object') {
+                        // Laravel validation errors
+                        errorMessage = Object.values(errors.errors).flat().join('\n');
+                    } else if (Object.keys(errors).length > 0) {
+                        // Generic object errors
+                        errorMessage = Object.values(errors).join('\n');
+                    }
+                } else if (typeof errors === 'string') {
+                    errorMessage = errors;
                 }
-            });
-        }
-    };
 
-    const getRiskBadgeColor = (rate) => {
-        if (rate >= 90) return 'bg-green-100 text-green-800';
-        if (rate >= 75) return 'bg-yellow-100 text-yellow-800';
-        if (rate >= 60) return 'bg-orange-100 text-orange-800';
-        return 'bg-red-100 text-red-800';
-    };
+                // Show alert dengan styling yang lebih baik
+                alert(errorMessage);
+            },
+            onFinish: () => {
+                console.log('Delete request finished');
+            }
+        });
+    }
+    ;
+};
 
-    const getComplianceIcon = (rate) => {
-        if (rate >= 90) return <CheckCircle className="h-5 w-5 text-green-500" />;
-        if (rate >= 60) return <AlertTriangle className="h-5 w-5 text-yellow-500" />;
-        return <AlertTriangle className="h-5 w-5 text-red-500" />;
+    const getCategoryColor = (category) => {
+        const colors = {
+            safety: 'bg-red-100 text-red-800',
+            operational: 'bg-blue-100 text-blue-800',
+            security: 'bg-purple-100 text-purple-800',
+            technical: 'bg-green-100 text-green-800'
+        };
+        return colors[category] || 'bg-gray-100 text-gray-800';
     };
-
-    // Mock data if not provided
-    const mockStats = {
-        total_certificates: 24,
-        active_certificates: 8,
-        expiring_certificates: 0,
-        expired_certificates: 16
-    };
-    const currentStats = Object.keys(stats).length > 0 ? stats : mockStats;
-    const currentComplianceRate = complianceRate || 33.3;
 
     return (
-        <AuthenticatedLayout user={auth.user}>
-            <Head title={trainingType.name} />
-
-            <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-                {/* Header */}
-                <div className="mb-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                            <Link
-                                href={route('training-types.index')}
-                                className="flex items-center text-sm text-gray-500 hover:text-gray-700"
-                            >
-                                <ArrowLeft className="h-4 w-4 mr-1" />
-                                Back to Training Types
-                            </Link>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                            <button
-                                onClick={handleEdit}
-                                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                            >
-                                <Edit className="h-4 w-4" />
-                                <span>Edit</span>
-                            </button>
-                            <button
-                                onClick={handleDelete}
-                                className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                                <span>Delete</span>
-                            </button>
+        <AuthenticatedLayout
+            user={auth.user}
+            header={
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                        <Link
+                            href={route('training-types.index')}
+                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        >
+                            <ArrowLeftIcon className="w-4 h-4 mr-2" />
+                            Back to Training Types
+                        </Link>
+                        <div>
+                            <h2 className="font-semibold text-xl text-gray-800 leading-tight">
+                                {trainingType.name}
+                            </h2>
+                            <p className="text-sm text-gray-600 mt-1">
+                                Training Type Details & Statistics
+                            </p>
                         </div>
                     </div>
-                </div>
 
-                {/* Training Type Header */}
-                <div className="bg-white shadow rounded-lg mb-6">
-                    <div className="px-6 py-6">
-                        <div className="flex items-start justify-between">
-                            <div className="flex items-start space-x-4">
-                                <div className="p-3 bg-blue-100 rounded-lg">
-                                    <BookOpen className="h-8 w-8 text-blue-600" />
-                                </div>
-                                <div>
-                                    <h1 className="text-2xl font-bold text-gray-900">
-                                        {trainingType.name}
-                                    </h1>
-                                    <div className="flex items-center space-x-4 mt-2">
-                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                                            {trainingType.category}
-                                        </span>
-                                        <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-                                            Code: {trainingType.code}
-                                        </span>
-                                        {trainingType.is_mandatory && (
-                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-800">
-                                                Mandatory
-                                            </span>
-                                        )}
-                                        {trainingType.is_active ? (
-                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                                                Active
-                                            </span>
-                                        ) : (
-                                            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-800">
-                                                Inactive
-                                            </span>
+                    {/* ⭐ HEADER BUTTONS DENGAN DELETE YANG BENAR */}
+                    <div className="flex space-x-3">
+                        <Link
+                            href={route('training-types.edit', trainingType.id)}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-blue-700 focus:bg-blue-700 active:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                        >
+                            <PencilIcon className="w-4 h-4 mr-2" />
+                            Edit
+                        </Link>
+                        <button
+                            onClick={handleDelete}
+                            className="inline-flex items-center px-4 py-2 bg-red-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-red-700 focus:bg-red-700 active:bg-red-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                        >
+                            <TrashIcon className="w-4 h-4 mr-2" />
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            }
+        >
+            <Head title={`Training Type - ${trainingType.name}`} />
+
+            <div className="py-12">
+                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+                        {/* Training Type Information Card */}
+                        <div className="lg:col-span-1">
+                            <div className="bg-white shadow rounded-lg p-6">
+                                <div className="flex items-center space-x-4 mb-6">
+                                    <div className="flex-shrink-0">
+                                        <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                                            <TagIcon className="w-8 h-8 text-green-600" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-medium text-gray-900">
+                                            {trainingType.name}
+                                        </h3>
+                                        {trainingType.code && (
+                                            <p className="text-sm text-gray-500">
+                                                Code: {trainingType.code}
+                                            </p>
                                         )}
                                     </div>
                                 </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                {getComplianceIcon(currentComplianceRate)}
-                                <div className="text-right">
-                                    <div className="text-2xl font-bold text-gray-900">
-                                        {currentComplianceRate}%
+
+                                <div className="space-y-4">
+                                    <div>
+                                        <dt className="text-sm font-medium text-gray-500">Category</dt>
+                                        <dd className="mt-1">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryColor(trainingType.category)}`}>
+                                                {trainingType.category}
+                                            </span>
+                                        </dd>
                                     </div>
-                                    <div className="text-sm text-gray-500">Compliance Rate</div>
+                                    <div>
+                                        <dt className="text-sm font-medium text-gray-500">Validity Period</dt>
+                                        <dd className="mt-1 text-sm text-gray-900">
+                                            {trainingType.validity_months} months
+                                        </dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-sm font-medium text-gray-500">Status</dt>
+                                        <dd className="mt-1">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${trainingType.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {trainingType.is_active ? <CheckCircleIcon className="w-3 h-3 mr-1" /> : <XCircleIcon className="w-3 h-3 mr-1" />}
+                                                {trainingType.is_active ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </dd>
+                                    </div>
+                                    {trainingType.description && (
+                                        <div>
+                                            <dt className="text-sm font-medium text-gray-500">Description</dt>
+                                            <dd className="mt-1 text-sm text-gray-900">
+                                                {trainingType.description}
+                                            </dd>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
 
-                        {trainingType.description && (
-                            <div className="mt-4">
-                                <p className="text-gray-600">{trainingType.description}</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Statistics Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <Award className="h-8 w-8 text-blue-600" />
-                            </div>
-                            <div className="ml-4">
-                                <p className="text-sm font-medium text-gray-500">Total Certificates</p>
-                                <p className="text-2xl font-semibold text-gray-900">
-                                    {currentStats.total_certificates}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <CheckCircle className="h-8 w-8 text-green-600" />
-                            </div>
-                            <div className="ml-4">
-                                <p className="text-sm font-medium text-gray-500">Active</p>
-                                <p className="text-2xl font-semibold text-green-600">
-                                    {currentStats.active_certificates}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <Clock className="h-8 w-8 text-yellow-600" />
-                            </div>
-                            <div className="ml-4">
-                                <p className="text-sm font-medium text-gray-500">Expiring Soon</p>
-                                <p className="text-2xl font-semibold text-yellow-600">
-                                    {currentStats.expiring_certificates}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex items-center">
-                            <div className="flex-shrink-0">
-                                <AlertTriangle className="h-8 w-8 text-red-600" />
-                            </div>
-                            <div className="ml-4">
-                                <p className="text-sm font-medium text-gray-500">Expired</p>
-                                <p className="text-2xl font-semibold text-red-600">
-                                    {currentStats.expired_certificates}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Details Sections */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Training Details */}
-                    <div className="lg:col-span-2">
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg font-medium text-gray-900">Training Details</h3>
-                            </div>
-                            <div className="px-6 py-6">
-                                <dl className="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-                                    <div>
-                                        <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                            <Clock className="h-4 w-4 mr-2" />
-                                            Validity Period
-                                        </dt>
-                                        <dd className="mt-1 text-sm text-gray-900">
-                                            {trainingType.validity_period_months || trainingType.validity_months || 12} months
-                                        </dd>
-                                    </div>
-
-                                    <div>
-                                        <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                            <AlertTriangle className="h-4 w-4 mr-2" />
-                                            Warning Period
-                                        </dt>
-                                        <dd className="mt-1 text-sm text-gray-900">
-                                            {trainingType.warning_period_days || 30} days before expiry
-                                        </dd>
-                                    </div>
-
-                                    {trainingType.estimated_cost && (
-                                        <div>
-                                            <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                                <DollarSign className="h-4 w-4 mr-2" />
-                                                Estimated Cost
-                                            </dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                Rp {Number(trainingType.estimated_cost).toLocaleString()}
-                                            </dd>
+                        {/* Statistics Cards */}
+                        <div className="lg:col-span-3">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center">
+                                        <div className="flex-shrink-0">
+                                            <ClipboardDocumentListIcon className="h-8 w-8 text-blue-600" />
                                         </div>
-                                    )}
-
-                                    {trainingType.estimated_duration_hours && (
-                                        <div>
-                                            <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                                <Clock className="h-4 w-4 mr-2" />
-                                                Duration
-                                            </dt>
-                                            <dd className="mt-1 text-sm text-gray-900">
-                                                {trainingType.estimated_duration_hours} hours
-                                            </dd>
+                                        <div className="ml-5 w-0 flex-1">
+                                            <dl>
+                                                <dt className="text-sm font-medium text-gray-500 truncate">
+                                                    Total Certificates
+                                                </dt>
+                                                <dd className="text-lg font-medium text-gray-900">
+                                                    {stats?.total_certificates || 0}
+                                                </dd>
+                                            </dl>
                                         </div>
-                                    )}
-
-                                    <div>
-                                        <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                            <User className="h-4 w-4 mr-2" />
-                                            Created
-                                        </dt>
-                                        <dd className="mt-1 text-sm text-gray-900">
-                                            {new Date(trainingType.created_at).toLocaleDateString()}
-                                        </dd>
                                     </div>
+                                </div>
 
-                                    <div>
-                                        <dt className="text-sm font-medium text-gray-500 flex items-center">
-                                            <Calendar className="h-4 w-4 mr-2" />
-                                            Last Updated
-                                        </dt>
-                                        <dd className="mt-1 text-sm text-gray-900">
-                                            {new Date(trainingType.updated_at).toLocaleDateString()}
-                                        </dd>
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center">
+                                        <div className="flex-shrink-0">
+                                            <CheckCircleIcon className="h-8 w-8 text-green-600" />
+                                        </div>
+                                        <div className="ml-5 w-0 flex-1">
+                                            <dl>
+                                                <dt className="text-sm font-medium text-gray-500 truncate">
+                                                    Active
+                                                </dt>
+                                                <dd className="text-lg font-medium text-gray-900">
+                                                    {stats?.active_certificates || 0}
+                                                </dd>
+                                            </dl>
+                                        </div>
                                     </div>
-                                </dl>
+                                </div>
 
-                                {trainingType.requirements && (
-                                    <div className="mt-6">
-                                        <dt className="text-sm font-medium text-gray-500 mb-2">
-                                            Requirements
-                                        </dt>
-                                        <dd className="text-sm text-gray-900 bg-gray-50 p-3 rounded-md">
-                                            {trainingType.requirements}
-                                        </dd>
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center">
+                                        <div className="flex-shrink-0">
+                                            <ExclamationTriangleIcon className="h-8 w-8 text-yellow-600" />
+                                        </div>
+                                        <div className="ml-5 w-0 flex-1">
+                                            <dl>
+                                                <dt className="text-sm font-medium text-gray-500 truncate">
+                                                    Expiring Soon
+                                                </dt>
+                                                <dd className="text-lg font-medium text-gray-900">
+                                                    {stats?.expiring_certificates || 0}
+                                                </dd>
+                                            </dl>
+                                        </div>
                                     </div>
-                                )}
+                                </div>
 
-                                {trainingType.learning_objectives && (
-                                    <div className="mt-6">
-                                        <dt className="text-sm font-medium text-gray-500 mb-2">
-                                            Learning Objectives
-                                        </dt>
-                                        <dd className="text-sm text-gray-900 bg-gray-50 p-3 rounded-md">
-                                            {trainingType.learning_objectives}
-                                        </dd>
+                                <div className="bg-white rounded-lg shadow p-6">
+                                    <div className="flex items-center">
+                                        <div className="flex-shrink-0">
+                                            <XCircleIcon className="h-8 w-8 text-red-600" />
+                                        </div>
+                                        <div className="ml-5 w-0 flex-1">
+                                            <dl>
+                                                <dt className="text-sm font-medium text-gray-500 truncate">
+                                                    Expired
+                                                </dt>
+                                                <dd className="text-lg font-medium text-gray-900">
+                                                    {stats?.expired_certificates || 0}
+                                                </dd>
+                                            </dl>
+                                        </div>
                                     </div>
-                                )}
+                                </div>
                             </div>
-                        </div>
-                    </div>
 
-                    {/* Recent Training Records */}
-                    <div>
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg font-medium text-gray-900">Recent Training Records</h3>
+                            {/* Compliance Rate */}
+                            <div className="bg-white shadow rounded-lg p-6 mb-8">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-lg font-medium text-gray-900">Compliance Rate</h3>
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-2xl font-bold text-gray-900">
+                                            {stats?.compliance_rate || '0'}%
+                                        </span>
+                                        {(stats?.compliance_rate || 0) >= 90 && (
+                                            <CheckCircleIcon className="w-6 h-6 text-green-500" />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <div className="bg-gray-200 rounded-full h-2">
+                                        <div
+                                            className={`h-2 rounded-full ${(stats?.compliance_rate || 0) >= 90 ? 'bg-green-500' : (stats?.compliance_rate || 0) >= 70 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                            style={{ width: `${stats?.compliance_rate || 0}%` }}
+                                        ></div>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="px-6 py-6">
-                                {trainingType.training_records && trainingType.training_records.length > 0 ? (
-                                    <div className="space-y-4">
-                                        {trainingType.training_records.slice(0, 5).map((record) => (
-                                            <div key={record.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-900">
-                                                        {record.employee?.name}
-                                                    </p>
-                                                    <p className="text-xs text-gray-500">
-                                                        {record.employee?.department?.name}
-                                                    </p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                                        record.status === 'active' ? 'bg-green-100 text-green-800' :
-                                                        record.status === 'expiring_soon' ? 'bg-yellow-100 text-yellow-800' :
-                                                        record.status === 'expired' ? 'bg-red-100 text-red-800' :
-                                                        'bg-gray-100 text-gray-800'
-                                                    }`}>
-                                                        {record.status}
+
+                            {/* Recent Training Records */}
+                            <div className="bg-white shadow rounded-lg">
+                                <div className="px-6 py-4 border-b border-gray-200">
+                                    <h3 className="text-lg font-medium text-gray-900">Recent Training Records</h3>
+                                </div>
+                                <div className="overflow-hidden">
+                                    {recentRecords && recentRecords.length > 0 ? (
+                                        <div className="divide-y divide-gray-200">
+                                            {recentRecords.map((record) => (
+                                                <div key={record.id} className="px-6 py-4 hover:bg-gray-50">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center">
+                                                            <div className="flex-shrink-0">
+                                                                <div className="h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center">
+                                                                    <UserGroupIcon className="h-5 w-5 text-gray-600" />
+                                                                </div>
+                                                            </div>
+                                                            <div className="ml-4">
+                                                                <div className="text-sm font-medium text-gray-900">
+                                                                    {record.employee?.name || 'Unknown Employee'}
+                                                                </div>
+                                                                <div className="text-sm text-gray-500">
+                                                                    {record.employee?.department?.name || 'No Department'} • {record.certificate_number}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-sm text-gray-900">
+                                                                Expires: {record.expiry_date ? new Date(record.expiry_date).toLocaleDateString() : 'N/A'}
+                                                            </div>
+                                                            <div className="text-sm text-gray-500">
+                                                                {record.issuer}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                    <p className="text-xs text-gray-500 mt-1">
-                                                        {new Date(record.completion_date).toLocaleDateString()}
-                                                    </p>
                                                 </div>
-                                            </div>
-                                        ))}
-                                        <div className="text-center">
-                                            <Link
-                                                href={route('training-records.index', { training_type: trainingType.id })}
-                                                className="text-sm text-blue-600 hover:text-blue-800"
-                                            >
-                                                View all training records →
-                                            </Link>
+                                            ))}
                                         </div>
-                                    </div>
-                                ) : (
-                                    <div className="text-center py-6">
-                                        <FileText className="mx-auto h-12 w-12 text-gray-400" />
-                                        <p className="text-sm text-gray-500 mt-2">
-                                            No training records yet
-                                        </p>
-                                    </div>
-                                )}
+                                    ) : (
+                                        <div className="px-6 py-12 text-center">
+                                            <ClipboardDocumentListIcon className="h-12 w-12 mx-auto text-gray-400" />
+                                            <h3 className="mt-2 text-sm font-medium text-gray-900">No training records</h3>
+                                            <p className="mt-1 text-sm text-gray-500">
+                                                No employees have completed this training type yet.
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -359,6 +342,4 @@ const ShowTrainingType = ({
             </div>
         </AuthenticatedLayout>
     );
-};
-
-export default ShowTrainingType;
+}
