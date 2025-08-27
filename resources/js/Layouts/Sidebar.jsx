@@ -47,6 +47,14 @@ export default function Sidebar({ user, mobile = false }) {
                     current: route().current('training-records.*'),
                     description: 'Data pelatihan dan sertifikasi',
                     roles: ['admin', 'super_admin']
+                },
+                {
+                    name: 'Certificates',
+                    href: route('certificates.index'),
+                    icon: ShieldCheckIcon,
+                    current: route().current('certificates.*'),
+                    description: 'Kelola sertifikat karyawan',
+                    roles: ['admin', 'super_admin']
                 }
             ]
         },
@@ -72,7 +80,7 @@ export default function Sidebar({ user, mobile = false }) {
                     description: 'Penyedia layanan training',
                     roles: ['super_admin']
                 }
-                // ❌ REMOVED: Department menu
+                // âŒ REMOVED: Department menu
             ]
         },
 

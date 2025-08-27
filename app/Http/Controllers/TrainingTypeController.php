@@ -10,6 +10,7 @@ use App\Models\TrainingRecord;
 use App\Services\TrainingTypeAnalyticsService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Log;
 
 class TrainingTypeController extends Controller
 {
@@ -247,7 +248,7 @@ class TrainingTypeController extends Controller
         }
 
         // Log the delete action
-        \Log::info('TrainingType Delete Attempt', [
+        Log::info('TrainingType Delete Attempt', [
             'training_type_id' => $trainingType->id,
             'training_type_name' => $trainingType->name,
             'user_id' => auth()->id(),
@@ -257,7 +258,7 @@ class TrainingTypeController extends Controller
         $trainingTypeName = $trainingType->name;
         $trainingType->delete();
 
-        \Log::info('TrainingType Deleted Successfully', [
+        Log::info('TrainingType Deleted Successfully', [
             'training_type_name' => $trainingTypeName,
             'user_id' => auth()->id()
         ]);
@@ -277,7 +278,7 @@ class TrainingTypeController extends Controller
     } catch (\Exception $e) {
         $errorMessage = 'Gagal menghapus training type: ' . $e->getMessage();
 
-        \Log::error('TrainingType Delete Error', [
+        Log::error('TrainingType Delete Error', [
             'training_type_id' => $trainingType->id,
             'error' => $e->getMessage(),
             'trace' => $e->getTraceAsString(),
