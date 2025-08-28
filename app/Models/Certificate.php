@@ -5,502 +5,273 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Carbon\Carbon;
-use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Storage;
 
 class Certificate extends Model
 {
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
-        'training_record_id',
-        'training_type_id',
-        'employee_id',
-        'training_provider_id',
         'certificate_number',
-        'certificate_series',
-        'verification_code',
-        'digital_signature',
-        'issued_by',
+        'certificate_type',
+        'template_type',
+        'training_record_id',
+        'employee_id',
+        'training_type_id',
+        'training_provider_id',
         'issuer_name',
         'issuer_title',
-        'issuer_license',
+        'issuer_organization',
+        'issuer_signature_path',
+        'issuer_seal_path',
         'issue_date',
-        'valid_from',
+        'effective_date',
         'expiry_date',
-        'original_expiry_date',
-        'validity_period_days',
+        'issued_at',
         'status',
-        'lifecycle_stage',
-        'certificate_description',
-        'competencies_achieved',
-        'assessment_results',
-        'final_score',
-        'passing_score',
-        'grade',
-        'certificate_file_path',
-        'certificate_template',
+        'verification_status',
         'qr_code_path',
-        'additional_documents',
-        'file_size_kb',
+        'verification_code',
+        'blockchain_hash',
+        'verification_metadata',
+        'score',
+        'passing_score',
+        'achievements',
+        'remarks',
+        'certificate_file_path',
+        'original_file_path',
+        'file_size',
         'file_hash',
-        'is_verified',
-        'verification_date',
-        'verified_by_id',
-        'verification_notes',
+        'parent_certificate_id',
         'is_renewable',
-        'renewal_due_date',
-        'renewal_reminder_sent',
-        'renewal_reminder_count',
-        'renewed_from_id',
-        'renewed_to_id',
-        'renewal_generation',
-        'last_compliance_check',
+        'renewal_count',
+        'next_renewal_date',
+        'renewal_notes',
+        'is_compliance_required',
         'compliance_status',
-        'compliance_notes',
-        'compliance_checklist',
-        'revocation_date',
-        'revocation_reason',
-        'revoked_by_id',
-        'revocation_notes',
-        'suspension_start',
-        'suspension_end',
-        'suspension_reason',
-        'download_count',
-        'last_downloaded',
-        'usage_statistics',
-        'cost_per_certificate',
-        'metadata',
-        'internal_notes',
-        'language',
+        'last_verified_at',
+        'verified_by',
+        'custom_fields',
+        'notes',
+        'print_status',
+        'printed_at',
+        'print_count',
         'created_by_id',
         'updated_by_id'
     ];
 
     protected $casts = [
         'issue_date' => 'date',
-        'valid_from' => 'date',
+        'effective_date' => 'date',
         'expiry_date' => 'date',
-        'original_expiry_date' => 'date',
-        'verification_date' => 'datetime',
-        'renewal_due_date' => 'date',
-        'renewal_reminder_sent' => 'date',
-        'last_compliance_check' => 'date',
-        'revocation_date' => 'date',
-        'suspension_start' => 'date',
-        'suspension_end' => 'date',
-        'last_downloaded' => 'datetime',
-        'competencies_achieved' => 'array',
-        'assessment_results' => 'array',
-        'additional_documents' => 'array',
-        'usage_statistics' => 'array',
-        'metadata' => 'array',
-        'compliance_checklist' => 'array',
-        'final_score' => 'decimal:2',
+        'issued_at' => 'datetime',
+        'next_renewal_date' => 'date',
+        'last_verified_at' => 'datetime',
+        'printed_at' => 'datetime',
+        'score' => 'decimal:2',
         'passing_score' => 'decimal:2',
-        'cost_per_certificate' => 'decimal:2',
-        'is_verified' => 'boolean',
+        'file_size' => 'integer',
+        'renewal_count' => 'integer',
+        'print_count' => 'integer',
         'is_renewable' => 'boolean',
-        'download_count' => 'integer',
-        'renewal_reminder_count' => 'integer',
-        'renewal_generation' => 'integer',
-        'validity_period_days' => 'integer',
-        'file_size_kb' => 'integer',
+        'is_compliance_required' => 'boolean',
+        'verification_metadata' => 'json',
+        'custom_fields' => 'json'
     ];
 
-    // ==========================================
-    // RELATIONSHIPS
-    // ==========================================
+    protected $dates = [
+        'deleted_at'
+    ];
 
-    public function trainingRecord()
+    // =================================================================
+    // RELATIONSHIPS
+    // =================================================================
+
+    /**
+     * Training record this certificate belongs to
+     */
+    public function trainingRecord(): BelongsTo
     {
         return $this->belongsTo(TrainingRecord::class);
     }
 
-    public function trainingType()
-    {
-        return $this->belongsTo(TrainingType::class);
-    }
-
-    public function employee()
+    /**
+     * Employee who received this certificate
+     */
+    public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
     }
 
-    public function trainingProvider()
+    /**
+     * Training type for this certificate
+     */
+    public function trainingType(): BelongsTo
+    {
+        return $this->belongsTo(TrainingType::class);
+    }
+
+    /**
+     * Training provider who issued this certificate
+     */
+    public function trainingProvider(): BelongsTo
     {
         return $this->belongsTo(TrainingProvider::class);
     }
 
-    public function verifiedBy()
+    /**
+     * Parent certificate (for renewals)
+     */
+    public function parentCertificate(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'verified_by_id');
+        return $this->belongsTo(Certificate::class, 'parent_certificate_id');
     }
 
-    public function revokedBy()
+    /**
+     * Child certificates (renewals)
+     */
+    public function renewals(): HasMany
     {
-        return $this->belongsTo(User::class, 'revoked_by_id');
+        return $this->hasMany(Certificate::class, 'parent_certificate_id');
     }
 
-    public function createdBy()
+    /**
+     * User who created this certificate
+     */
+    public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_id');
     }
 
-    public function updatedBy()
+    /**
+     * User who last updated this certificate
+     */
+    public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by_id');
     }
 
-    public function renewedFrom()
+    // =================================================================
+    // SCOPES
+    // =================================================================
+
+    /**
+     * Scope for issued certificates
+     */
+    public function scopeIssued(Builder $query): Builder
     {
-        return $this->belongsTo(Certificate::class, 'renewed_from_id');
+        return $query->where('status', 'issued');
     }
 
-    public function renewedTo()
+    /**
+     * Scope for active certificates (issued and not expired)
+     */
+    public function scopeActive(Builder $query): Builder
     {
-        return $this->hasOne(Certificate::class, 'renewed_from_id');
-    }
-
-    public function renewalHistory()
-    {
-        return $this->hasMany(Certificate::class, 'renewed_from_id');
-    }
-
-    // ==========================================
-    // SCOPES & QUERY BUILDERS
-    // ==========================================
-
-    public function scopeActive(Builder $query)
-    {
-        return $query->where('status', 'active');
-    }
-
-    public function scopeExpired(Builder $query)
-    {
-        return $query->where('status', 'expired');
-    }
-
-    public function scopeExpiringSoon(Builder $query, $days = 30)
-    {
-        return $query->where('status', 'expiring_soon')
-                    ->orWhere(function($q) use ($days) {
-                        $q->where('status', 'active')
-                          ->whereNotNull('expiry_date')
-                          ->where('expiry_date', '<=', now()->addDays($days));
+        return $query->where('status', 'issued')
+                    ->where(function($q) {
+                        $q->whereNull('expiry_date')
+                          ->orWhere('expiry_date', '>', now());
                     });
     }
 
-    public function scopeVerified(Builder $query)
+    /**
+     * Scope for expired certificates
+     */
+    public function scopeExpired(Builder $query): Builder
     {
-        return $query->where('is_verified', true);
+        return $query->where('status', 'issued')
+                    ->where('expiry_date', '<=', now());
     }
 
-    public function scopeByProvider(Builder $query, $providerId)
+    /**
+     * Scope for expiring certificates (within warning period)
+     */
+    public function scopeExpiring(Builder $query, int $days = 30): Builder
     {
-        return $query->where('training_provider_id', $providerId);
+        return $query->where('status', 'issued')
+                    ->whereBetween('expiry_date', [
+                        now(),
+                        now()->addDays($days)
+                    ]);
     }
 
-    public function scopeByTrainingType(Builder $query, $typeId)
+    /**
+     * Scope for certificates by employee
+     */
+    public function scopeByEmployee(Builder $query, int $employeeId): Builder
     {
-        return $query->where('training_type_id', $typeId);
+        return $query->where('employee_id', $employeeId);
     }
 
-    public function scopeCompliant(Builder $query)
+    /**
+     * Scope for certificates by training type
+     */
+    public function scopeByTrainingType(Builder $query, int $trainingTypeId): Builder
     {
-        return $query->where('compliance_status', 'compliant');
+        return $query->where('training_type_id', $trainingTypeId);
     }
 
-    public function scopeRenewable(Builder $query)
+    /**
+     * Scope for certificates by department
+     */
+    public function scopeByDepartment(Builder $query, int $departmentId): Builder
     {
-        return $query->where('is_renewable', true);
-    }
-
-    public function scopeDueForRenewal(Builder $query, $days = 30)
-    {
-        return $query->where('is_renewable', true)
-                    ->where('renewal_due_date', '<=', now()->addDays($days));
-    }
-
-    public function scopeSearch(Builder $query, $term)
-    {
-        return $query->where(function ($q) use ($term) {
-            $q->where('certificate_number', 'like', "%{$term}%")
-              ->orWhere('verification_code', 'like', "%{$term}%")
-              ->orWhere('issued_by', 'like', "%{$term}%")
-              ->orWhereHas('employee', function ($empQuery) use ($term) {
-                  $empQuery->where('name', 'like', "%{$term}%")
-                           ->orWhere('employee_id', 'like', "%{$term}%");
-              })
-              ->orWhereHas('trainingType', function ($typeQuery) use ($term) {
-                  $typeQuery->where('name', 'like', "%{$term}%")
-                           ->orWhere('code', 'like', "%{$term}%");
-              });
+        return $query->whereHas('employee', function($q) use ($departmentId) {
+            $q->where('department_id', $departmentId);
         });
     }
 
-    // ==========================================
-    // CERTIFICATE LIFECYCLE METHODS
-    // ==========================================
-
-    public function updateStatus()
+    /**
+     * Scope for compliance required certificates
+     */
+    public function scopeComplianceRequired(Builder $query): Builder
     {
-        $now = now();
-        $oldStatus = $this->status;
-
-        if ($this->revocation_date && $this->revocation_date <= $now) {
-            $this->status = 'revoked';
-        } elseif ($this->suspension_start && $this->suspension_end &&
-                  $now->between($this->suspension_start, $this->suspension_end)) {
-            $this->status = 'suspended';
-        } elseif ($this->expiry_date && $this->expiry_date < $now) {
-            $this->status = 'expired';
-        } elseif ($this->expiry_date && $this->expiry_date <= $now->addDays(30)) {
-            $this->status = 'expiring_soon';
-        } elseif ($this->valid_from && $this->valid_from > $now) {
-            $this->status = 'draft';
-        } else {
-            $this->status = 'active';
-        }
-
-        if ($oldStatus !== $this->status) {
-            $this->save();
-        }
-
-        return $this->status;
+        return $query->where('is_compliance_required', true);
     }
 
-    public function revoke($reason, $revokedBy = null)
+    // =================================================================
+    // BUSINESS LOGIC METHODS
+    // =================================================================
+
+    /**
+     * Check if certificate is expired
+     */
+    public function isExpired(): bool
     {
-        $this->update([
-            'status' => 'revoked',
-            'revocation_date' => now(),
-            'revocation_reason' => $reason,
-            'revoked_by_id' => $revokedBy ?? auth()->id()
-        ]);
-
-        // Log the revocation
-        activity('certificate')
-            ->performedOn($this)
-            ->causedBy(auth()->user())
-            ->withProperties(['reason' => $reason])
-            ->log('Certificate revoked');
-
-        return $this;
+        return $this->expiry_date && $this->expiry_date->isPast();
     }
 
-    public function suspend($startDate, $endDate, $reason)
+    /**
+     * Check if certificate is expiring soon
+     */
+    public function isExpiringSoon(int $days = 30): bool
     {
-        $this->update([
-            'status' => 'suspended',
-            'suspension_start' => $startDate,
-            'suspension_end' => $endDate,
-            'suspension_reason' => $reason
-        ]);
-
-        return $this;
-    }
-
-    public function reactivate()
-    {
-        $this->update([
-            'suspension_start' => null,
-            'suspension_end' => null,
-            'suspension_reason' => null
-        ]);
-
-        $this->updateStatus();
-        return $this;
-    }
-
-    public function renew(array $renewalData = [])
-    {
-        $newCertificate = $this->replicate([
-            'certificate_number',
-            'verification_code',
-            'issue_date',
-            'expiry_date',
-            'renewal_generation'
-        ]);
-
-        $newCertificate->fill(array_merge([
-            'certificate_number' => static::generateCertificateNumber($this->trainingType->code),
-            'verification_code' => static::generateVerificationCode(),
-            'issue_date' => now(),
-            'expiry_date' => $renewalData['expiry_date'] ?? $this->calculateNewExpiryDate(),
-            'renewal_generation' => $this->renewal_generation + 1,
-            'renewed_from_id' => $this->id,
-            'status' => 'active'
-        ], $renewalData));
-
-        $newCertificate->save();
-
-        // Update original certificate
-        $this->update([
-            'status' => 'renewed',
-            'renewed_to_id' => $newCertificate->id
-        ]);
-
-        return $newCertificate;
-    }
-
-    // ==========================================
-    // VERIFICATION & SECURITY
-    // ==========================================
-
-    public function verify(User $verifier, $notes = null)
-    {
-        $this->update([
-            'is_verified' => true,
-            'verification_date' => now(),
-            'verified_by_id' => $verifier->id,
-            'verification_notes' => $notes
-        ]);
-
-        return $this;
-    }
-
-    public function generateDigitalSignature()
-    {
-        $data = $this->certificate_number .
-                $this->employee->name .
-                $this->issue_date .
-                $this->trainingType->code;
-
-        $this->digital_signature = hash('sha256', $data . config('app.key'));
-        $this->save();
-
-        return $this->digital_signature;
-    }
-
-    public function verifyIntegrity()
-    {
-        if (!$this->certificate_file_path || !Storage::exists($this->certificate_file_path)) {
+        if (!$this->expiry_date) {
             return false;
         }
 
-        $currentHash = hash_file('md5', Storage::path($this->certificate_file_path));
-        return $currentHash === $this->file_hash;
+        return $this->expiry_date->isBetween(now(), now()->addDays($days));
     }
 
-    // ==========================================
-    // CERTIFICATE GENERATION & FILES
-    // ==========================================
-
-    public static function generateCertificateNumber($trainingTypeCode = null)
+    /**
+     * Check if certificate is renewable
+     */
+    public function canBeRenewed(): bool
     {
-        $prefix = $trainingTypeCode ? strtoupper($trainingTypeCode) : 'GAP';
-        $year = date('Y');
-        $month = date('m');
-
-        $lastCertificate = static::whereYear('issue_date', $year)
-            ->whereMonth('issue_date', $month)
-            ->where('certificate_number', 'like', "{$prefix}-{$year}{$month}-%")
-            ->orderByDesc('certificate_number')
-            ->first();
-
-        $sequence = 1;
-        if ($lastCertificate) {
-            $parts = explode('-', $lastCertificate->certificate_number);
-            if (count($parts) >= 3) {
-                $sequence = intval(end($parts)) + 1;
-            }
-        }
-
-        return sprintf('%s-%s%s-%04d', $prefix, $year, $month, $sequence);
+        return $this->is_renewable &&
+               $this->status === 'issued' &&
+               ($this->isExpired() || $this->isExpiringSoon(90));
     }
 
-    public static function generateVerificationCode()
-    {
-        do {
-            $code = strtoupper(Str::random(8));
-        } while (static::where('verification_code', $code)->exists());
-
-        return $code;
-    }
-
-    public function getVerificationUrl()
-    {
-        return route('certificates.verify', $this->verification_code);
-    }
-
-    public function getDownloadUrl()
-    {
-        if (!$this->certificate_file_path) {
-            return null;
-        }
-
-        return route('certificates.download', $this->id);
-    }
-
-    public function incrementDownloadCount()
-    {
-        $this->increment('download_count');
-        $this->update(['last_downloaded' => now()]);
-    }
-
-    // ==========================================
-    // ANALYTICS & REPORTING
-    // ==========================================
-
-    public static function getAnalytics($startDate = null, $endDate = null)
-    {
-        $query = static::query();
-
-        if ($startDate) {
-            $query->where('issue_date', '>=', $startDate);
-        }
-
-        if ($endDate) {
-            $query->where('issue_date', '<=', $endDate);
-        }
-
-        $total = $query->count();
-
-        return [
-            'total' => $total,
-            'active' => $query->clone()->where('status', 'active')->count(),
-            'expired' => $query->clone()->where('status', 'expired')->count(),
-            'expiring_soon' => $query->clone()->where('status', 'expiring_soon')->count(),
-            'revoked' => $query->clone()->where('status', 'revoked')->count(),
-            'suspended' => $query->clone()->where('status', 'suspended')->count(),
-            'verified' => $query->clone()->where('is_verified', true)->count(),
-            'due_for_renewal' => $query->clone()->dueForRenewal()->count(),
-            'by_status' => $query->clone()->groupBy('status')->selectRaw('status, count(*) as count')->pluck('count', 'status'),
-            'by_compliance' => $query->clone()->groupBy('compliance_status')->selectRaw('compliance_status, count(*) as count')->pluck('count', 'compliance_status'),
-            'verification_rate' => $total > 0 ? round(($query->clone()->where('is_verified', true)->count() / $total) * 100, 2) : 0,
-        ];
-    }
-
-    public function calculateNewExpiryDate()
-    {
-        if ($this->trainingType && $this->trainingType->validity_period_months) {
-            return now()->addMonths($this->trainingType->validity_period_months);
-        }
-
-        if ($this->validity_period_days) {
-            return now()->addDays($this->validity_period_days);
-        }
-
-        return now()->addYear();
-    }
-
-    public function isExpired()
-    {
-        return $this->expiry_date && $this->expiry_date < now();
-    }
-
-    public function isExpiringSoon($days = 30)
-    {
-        return $this->expiry_date &&
-               $this->expiry_date > now() &&
-               $this->expiry_date <= now()->addDays($days);
-    }
-
-    public function getDaysUntilExpiry()
+    /**
+     * Get days until expiry
+     */
+    public function getDaysUntilExpiryAttribute(): ?int
     {
         if (!$this->expiry_date) {
             return null;
@@ -509,15 +280,142 @@ class Certificate extends Model
         return now()->diffInDays($this->expiry_date, false);
     }
 
-    public function getLifecycleProgress()
+    /**
+     * Get certificate age in days
+     */
+    public function getAgeInDaysAttribute(): int
     {
-        if (!$this->issue_date || !$this->expiry_date) {
-            return 0;
-        }
+        return $this->issue_date->diffInDays(now());
+    }
 
-        $totalDays = $this->issue_date->diffInDays($this->expiry_date);
-        $daysPassed = $this->issue_date->diffInDays(now());
+    /**
+     * Generate unique certificate number
+     */
+    public static function generateCertificateNumber(string $prefix = 'CERT'): string
+    {
+        $year = now()->year;
+        $month = now()->format('m');
 
-        return $totalDays > 0 ? min(round(($daysPassed / $totalDays) * 100, 2), 100) : 100;
+        // Get next sequence number for this month
+        $lastCert = static::whereYear('created_at', $year)
+                         ->whereMonth('created_at', $month)
+                         ->latest('id')
+                         ->first();
+
+        $sequence = $lastCert ? (int) substr($lastCert->certificate_number, -4) + 1 : 1;
+
+        return sprintf('%s-%d%s-%04d', $prefix, $year, $month, $sequence);
+    }
+
+    /**
+     * Generate verification code
+     */
+    public function generateVerificationCode(): string
+    {
+        return strtoupper(uniqid() . substr(md5($this->certificate_number . $this->employee_id), 0, 6));
+    }
+
+    /**
+     * Mark as printed
+     */
+    public function markAsPrinted(): void
+    {
+        $this->update([
+            'print_status' => $this->print_count > 0 ? 'reprinted' : 'printed',
+            'printed_at' => now(),
+            'print_count' => $this->print_count + 1
+        ]);
+    }
+
+    /**
+     * Revoke certificate
+     */
+    public function revoke(string $reason = null): bool
+    {
+        return $this->update([
+            'status' => 'revoked',
+            'notes' => $this->notes . "\n[REVOKED] " . ($reason ?: 'No reason provided') . ' at ' . now()->format('Y-m-d H:i:s')
+        ]);
+    }
+
+    /**
+     * Create renewal certificate
+     */
+    public function createRenewal(array $attributes = []): Certificate
+    {
+        $renewalData = array_merge([
+            'certificate_number' => static::generateCertificateNumber(),
+            'certificate_type' => $this->certificate_type,
+            'employee_id' => $this->employee_id,
+            'training_type_id' => $this->training_type_id,
+            'training_provider_id' => $this->training_provider_id,
+            'parent_certificate_id' => $this->id,
+            'issuer_name' => $this->issuer_name,
+            'issuer_organization' => $this->issuer_organization,
+            'issue_date' => now()->toDateString(),
+            'issued_at' => now(),
+            'status' => 'draft',
+            'renewal_count' => $this->renewal_count + 1,
+            'verification_code' => null // Will be generated on issue
+        ], $attributes);
+
+        return static::create($renewalData);
+    }
+
+    // =================================================================
+    // ACCESSORS & MUTATORS
+    // =================================================================
+
+    /**
+     * Get status badge color
+     */
+    public function getStatusBadgeColorAttribute(): string
+    {
+        return match($this->status) {
+            'draft' => 'gray',
+            'issued' => $this->isExpired() ? 'red' : ($this->isExpiringSoon() ? 'yellow' : 'green'),
+            'revoked' => 'red',
+            'expired' => 'red',
+            'renewed' => 'blue',
+            default => 'gray'
+        };
+    }
+
+    /**
+     * Get verification status badge color
+     */
+    public function getVerificationBadgeColorAttribute(): string
+    {
+        return match($this->verification_status) {
+            'pending' => 'yellow',
+            'verified' => 'green',
+            'invalid' => 'red',
+            'under_review' => 'blue',
+            default => 'gray'
+        };
+    }
+
+    /**
+     * Boot method for model events
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($certificate) {
+            if (!$certificate->certificate_number) {
+                $certificate->certificate_number = static::generateCertificateNumber();
+            }
+
+            if (!$certificate->verification_code && $certificate->status === 'issued') {
+                $certificate->verification_code = $certificate->generateVerificationCode();
+            }
+        });
+
+        static::updating(function ($certificate) {
+            if ($certificate->isDirty('status') && $certificate->status === 'issued' && !$certificate->verification_code) {
+                $certificate->verification_code = $certificate->generateVerificationCode();
+            }
+        });
     }
 }

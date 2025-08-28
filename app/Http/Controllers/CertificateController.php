@@ -1,63 +1,77 @@
 <?php
-// app/Http/Controllers/CertificateController.php
 
 namespace App\Http\Controllers;
 
 use App\Models\Certificate;
-use App\Models\TrainingRecord;
-use App\Models\TrainingType;
 use App\Models\Employee;
+use App\Models\TrainingType;
 use App\Models\TrainingProvider;
+use App\Models\TrainingRecord;
+use App\Models\Department;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Validation\Rule;
+use Inertia\Inertia;
+use Inertia\Response;
 use Carbon\Carbon;
 
 class CertificateController extends Controller
 {
     /**
-     * Display a listing of certificates
+     * Display certificates listing with filters and search
      */
-    public function index(Request $request)
+    public function index(Request $request): Response
     {
         $query = Certificate::with([
-            'employee:id,name,employee_id',
+            'employee:id,name,nip,department_id',
+            'employee.department:id,name,code',
             'trainingType:id,name,code,category',
-            'trainingProvider:id,name,code',
-            'verifiedBy:id,name'
+            'trainingProvider:id,name,code'
         ]);
 
         // Search functionality
         if ($request->filled('search')) {
-            $query->search($request->search);
+            $searchTerm = $request->search;
+            $query->where(function($q) use ($searchTerm) {
+                $q->where('certificate_number', 'like', "%{$searchTerm}%")
+                  ->orWhere('issuer_name', 'like', "%{$searchTerm}%")
+                  ->orWhereHas('employee', function($q) use ($searchTerm) {
+                      $q->where('name', 'like', "%{$searchTerm}%")
+                        ->orWhere('nip', 'like', "%{$searchTerm}%");
+                  })
+                  ->orWhereHas('trainingType', function($q) use ($searchTerm) {
+                      $q->where('name', 'like', "%{$searchTerm}%");
+                  });
+            });
         }
 
         // Status filter
-        if ($request->filled('status') && $request->status !== '') {
-            $query->where('status', $request->status);
+        if ($request->filled('status')) {
+            if ($request->status === 'active') {
+                $query->active();
+            } elseif ($request->status === 'expired') {
+                $query->expired();
+            } elseif ($request->status === 'expiring') {
+                $query->expiring(30);
+            } else {
+                $query->where('status', $request->status);
+            }
         }
 
-        // Compliance filter
-        if ($request->filled('compliance') && $request->compliance !== '') {
-            $query->where('compliance_status', $request->compliance);
-        }
-
-        // Provider filter
-        if ($request->filled('provider') && $request->provider !== '') {
-            $query->where('training_provider_id', $request->provider);
+        // Department filter
+        if ($request->filled('department_id')) {
+            $query->byDepartment($request->department_id);
         }
 
         // Training type filter
-        if ($request->filled('training_type') && $request->training_type !== '') {
-            $query->where('training_type_id', $request->training_type);
+        if ($request->filled('training_type_id')) {
+            $query->byTrainingType($request->training_type_id);
         }
 
-        // Verification filter
-        if ($request->filled('verification') && $request->verification !== '') {
-            $query->where('is_verified', $request->verification === '1');
+        // Training provider filter
+        if ($request->filled('training_provider_id')) {
+            $query->where('training_provider_id', $request->training_provider_id);
         }
 
         // Date range filter
@@ -68,46 +82,50 @@ class CertificateController extends Controller
             $query->where('issue_date', '<=', $request->date_to);
         }
 
-        // Expiry status filter
-        if ($request->filled('expiry_status')) {
-            switch ($request->expiry_status) {
-                case 'active':
-                    $query->active();
-                    break;
-                case 'expiring_soon':
-                    $query->expiringSoon(30);
-                    break;
-                case 'expired':
-                    $query->expired();
-                    break;
-                case 'due_renewal':
-                    $query->dueForRenewal(60);
-                    break;
-            }
+        // Sorting
+        $sortBy = $request->get('sort_by', 'issue_date');
+        $sortOrder = $request->get('sort_order', 'desc');
+
+        $allowedSorts = ['issue_date', 'expiry_date', 'certificate_number', 'status', 'created_at'];
+        if (in_array($sortBy, $allowedSorts)) {
+            $query->orderBy($sortBy, $sortOrder);
         }
 
-        $certificates = $query->orderByDesc('issue_date')
-                             ->paginate(20)
+        $certificates = $query->paginate($request->get('per_page', 15))
                              ->withQueryString();
 
         // Get filter options
-        $filterOptions = [
-            'statuses' => ['draft', 'active', 'expiring_soon', 'expired', 'revoked', 'suspended', 'renewed', 'cancelled'],
-            'compliance_statuses' => ['compliant', 'non_compliant', 'under_review', 'exempted'],
-            'training_providers' => TrainingProvider::select('id', 'name')->orderBy('name')->get(),
-            'training_types' => TrainingType::select('id', 'name', 'code')->orderBy('name')->get(),
-        ];
+        $departments = Department::select('id', 'name', 'code')->orderBy('name')->get();
+        $trainingTypes = TrainingType::select('id', 'name', 'code', 'category')
+                                    ->where('is_active', true)
+                                    ->orderBy('name')
+                                    ->get();
+        $trainingProviders = TrainingProvider::select('id', 'name', 'code')
+                                            ->where('is_active', true)
+                                            ->orderBy('name')
+                                            ->get();
 
-        // Calculate summary statistics
-        $stats = Certificate::getAnalytics();
+        // Certificate statistics
+        $stats = $this->getCertificateStats();
 
         return Inertia::render('Certificates/Index', [
             'certificates' => $certificates,
-            'filters' => $request->only([
-                'search', 'status', 'compliance', 'provider', 'training_type',
-                'verification', 'date_from', 'date_to', 'expiry_status'
-            ]),
-            'filterOptions' => $filterOptions,
+            'filters' => [
+                'search' => $request->search,
+                'status' => $request->status,
+                'department_id' => $request->department_id,
+                'training_type_id' => $request->training_type_id,
+                'training_provider_id' => $request->training_provider_id,
+                'date_from' => $request->date_from,
+                'date_to' => $request->date_to,
+                'sort_by' => $sortBy,
+                'sort_order' => $sortOrder,
+            ],
+            'filterOptions' => [
+                'departments' => $departments,
+                'trainingTypes' => $trainingTypes,
+                'trainingProviders' => $trainingProviders,
+            ],
             'stats' => $stats
         ]);
     }
@@ -115,559 +133,505 @@ class CertificateController extends Controller
     /**
      * Show certificate details
      */
-    public function show(Certificate $certificate)
+    public function show(Certificate $certificate): Response
     {
         $certificate->load([
-            'employee.department',
-            'trainingType.category',
-            'trainingProvider',
-            'trainingRecord',
-            'verifiedBy',
-            'revokedBy',
-            'createdBy',
-            'renewedFrom',
-            'renewedTo',
-            'renewalHistory'
+            'employee:id,name,nip,email,phone,department_id,position',
+            'employee.department:id,name,code',
+            'trainingType:id,name,code,category,description,validity_period_months',
+            'trainingProvider:id,name,code,contact_person,email,phone',
+            'trainingRecord:id,training_date,completion_date,score,passing_score,training_hours,cost,location,instructor_name,notes',
+            'parentCertificate:id,certificate_number,issue_date,status',
+            'renewals:id,certificate_number,issue_date,status,expiry_date',
+            'createdBy:id,name',
+            'updatedBy:id,name'
         ]);
 
-        // Get certificate lifecycle history
-        $lifecycleEvents = $this->getCertificateLifecycleEvents($certificate);
-
-        // Calculate certificate metrics
-        $metrics = [
-            'lifecycle_progress' => $certificate->getLifecycleProgress(),
-            'days_until_expiry' => $certificate->getDaysUntilExpiry(),
-            'verification_status' => $certificate->is_verified ? 'Verified' : 'Unverified',
-            'download_count' => $certificate->download_count,
-            'renewal_generation' => $certificate->renewal_generation,
-            'file_size' => $certificate->file_size_kb ? $certificate->file_size_kb . ' KB' : 'N/A'
-        ];
+        // Get related certificates for same employee and training type
+        $relatedCertificates = Certificate::where('employee_id', $certificate->employee_id)
+                                        ->where('training_type_id', $certificate->training_type_id)
+                                        ->where('id', '!=', $certificate->id)
+                                        ->with('trainingProvider:id,name')
+                                        ->orderBy('issue_date', 'desc')
+                                        ->limit(5)
+                                        ->get();
 
         return Inertia::render('Certificates/Show', [
             'certificate' => $certificate,
-            'lifecycleEvents' => $lifecycleEvents,
-            'metrics' => $metrics,
-            'qrCodeUrl' => $certificate->qr_code_path ? Storage::url($certificate->qr_code_path) : null,
-            'canDownload' => $certificate->certificate_file_path && Storage::exists($certificate->certificate_file_path),
-            'verificationUrl' => $certificate->getVerificationUrl()
+            'relatedCertificates' => $relatedCertificates
         ]);
     }
 
     /**
-     * Show certificate creation form
+     * Show create certificate form
      */
-    public function create(Request $request)
+    public function create(Request $request): Response
     {
-        $trainingRecord = null;
+        // Get options for form
+        $employees = Employee::select('id', 'name', 'nip', 'department_id')
+                            ->with('department:id,name')
+                            ->where('status', 'active')
+                            ->orderBy('name')
+                            ->get();
 
+        $trainingTypes = TrainingType::select('id', 'name', 'code', 'category', 'validity_period_months')
+                                    ->where('is_active', true)
+                                    ->orderBy('name')
+                                    ->get();
+
+        $trainingProviders = TrainingProvider::select('id', 'name', 'code')
+                                            ->where('is_active', true)
+                                            ->orderBy('name')
+                                            ->get();
+
+        // If training_record_id is provided, pre-populate from training record
+        $prePopulateData = null;
         if ($request->filled('training_record_id')) {
-            $trainingRecord = TrainingRecord::with(['employee', 'trainingType', 'trainingProvider'])
-                                          ->findOrFail($request->training_record_id);
+            $trainingRecord = TrainingRecord::with([
+                'employee:id,name,nip',
+                'trainingType:id,name',
+                'trainingProvider:id,name'
+            ])->find($request->training_record_id);
+
+            if ($trainingRecord) {
+                $prePopulateData = [
+                    'training_record_id' => $trainingRecord->id,
+                    'employee_id' => $trainingRecord->employee_id,
+                    'training_type_id' => $trainingRecord->training_type_id,
+                    'training_provider_id' => $trainingRecord->training_provider_id,
+                    'issue_date' => $trainingRecord->completion_date?->format('Y-m-d') ?? $trainingRecord->issue_date?->format('Y-m-d'),
+                    'expiry_date' => $trainingRecord->expiry_date?->format('Y-m-d'),
+                    'score' => $trainingRecord->score,
+                    'passing_score' => $trainingRecord->passing_score,
+                ];
+            }
         }
 
         return Inertia::render('Certificates/Create', [
-            'trainingRecord' => $trainingRecord,
-            'employees' => Employee::select('id', 'name', 'employee_id')->orderBy('name')->get(),
-            'trainingTypes' => TrainingType::select('id', 'name', 'code', 'category')->orderBy('name')->get(),
-            'trainingProviders' => TrainingProvider::select('id', 'name', 'code')->orderBy('name')->get(),
-            'templates' => $this->getCertificateTemplates()
+            'employees' => $employees,
+            'trainingTypes' => $trainingTypes,
+            'trainingProviders' => $trainingProviders,
+            'prePopulateData' => $prePopulateData
         ]);
     }
 
     /**
      * Store new certificate
      */
-    public function store(Request $request)
+    public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'training_record_id' => 'required|exists:training_records,id',
-            'certificate_template' => 'nullable|string',
-            'issued_by' => 'required|string|max:255',
-            'issuer_name' => 'nullable|string|max:255',
+            'training_record_id' => 'nullable|exists:training_records,id',
+            'employee_id' => 'required|exists:employees,id',
+            'training_type_id' => 'required|exists:training_types,id',
+            'training_provider_id' => 'nullable|exists:training_providers,id',
+            'certificate_type' => 'required|in:completion,competency,compliance',
+            'issuer_name' => 'required|string|max:255',
             'issuer_title' => 'nullable|string|max:255',
-            'issuer_license' => 'nullable|string|max:100',
+            'issuer_organization' => 'nullable|string|max:255',
             'issue_date' => 'required|date',
-            'valid_from' => 'nullable|date',
+            'effective_date' => 'nullable|date',
             'expiry_date' => 'nullable|date|after:issue_date',
-            'validity_period_days' => 'nullable|integer|min:1',
-            'certificate_description' => 'nullable|string',
-            'competencies_achieved' => 'nullable|array',
-            'final_score' => 'nullable|numeric|min:0|max:100',
+            'score' => 'nullable|numeric|min:0|max:100',
             'passing_score' => 'nullable|numeric|min:0|max:100',
-            'grade' => 'nullable|string|max:10',
+            'achievements' => 'nullable|string',
+            'remarks' => 'nullable|string',
             'is_renewable' => 'boolean',
-            'language' => 'nullable|string|max:5',
-            'internal_notes' => 'nullable|string',
-            'certificate_file' => 'nullable|file|mimes:pdf|max:5120' // 5MB max
+            'is_compliance_required' => 'boolean',
+            'notes' => 'nullable|string',
         ]);
 
-        $trainingRecord = TrainingRecord::with(['employee', 'trainingType', 'trainingProvider'])
-                                       ->findOrFail($validated['training_record_id']);
+        try {
+            DB::beginTransaction();
 
-        // Auto-populate fields from training record
-        $certificateData = array_merge($validated, [
-            'training_type_id' => $trainingRecord->training_type_id,
-            'employee_id' => $trainingRecord->employee_id,
-            'training_provider_id' => $trainingRecord->training_provider_id,
-            'certificate_number' => Certificate::generateCertificateNumber($trainingRecord->trainingType->code),
-            'verification_code' => Certificate::generateVerificationCode(),
-            'status' => 'active',
-            'lifecycle_stage' => 'issued',
-            'compliance_status' => 'compliant',
-            'is_verified' => false,
-            'renewal_generation' => 1,
-            'created_by_id' => Auth::id()
-        ]);
+            $certificate = Certificate::create(array_merge($validated, [
+                'issued_at' => now(),
+                'status' => 'issued', // Auto-issue for now
+                'verification_status' => 'pending',
+                'created_by_id' => auth()->id(),
+            ]));
 
-        // Handle file upload
-        if ($request->hasFile('certificate_file')) {
-            $file = $request->file('certificate_file');
-            $path = $file->store('certificates', 'private');
+            // Update training record if provided
+            if ($request->training_record_id) {
+                TrainingRecord::find($request->training_record_id)->update([
+                    'certificate_number' => $certificate->certificate_number,
+                    'status' => 'completed'
+                ]);
+            }
 
-            $certificateData['certificate_file_path'] = $path;
-            $certificateData['file_size_kb'] = round($file->getSize() / 1024);
-            $certificateData['file_hash'] = hash_file('md5', $file->getPathname());
+            DB::commit();
+
+            return redirect()
+                ->route('certificates.show', $certificate)
+                ->with('success', 'Certificate created successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return back()
+                ->withInput()
+                ->withErrors(['error' => 'Failed to create certificate: ' . $e->getMessage()]);
         }
-
-        $certificate = Certificate::create($certificateData);
-
-        // Generate digital signature
-        $certificate->generateDigitalSignature();
-
-        // Log activity
-        activity('certificate')
-            ->performedOn($certificate)
-            ->causedBy(Auth::user())
-            ->log('Certificate created');
-
-        return redirect()->route('certificates.show', $certificate)
-                        ->with('success', "Certificate {$certificate->certificate_number} created successfully.");
     }
 
     /**
-     * Show certificate edit form
+     * Show edit certificate form
      */
-    public function edit(Certificate $certificate)
+    public function edit(Certificate $certificate): Response
     {
-        $certificate->load(['trainingRecord.employee', 'trainingType', 'trainingProvider']);
+        $certificate->load([
+            'employee:id,name,nip',
+            'trainingType:id,name',
+            'trainingProvider:id,name',
+            'trainingRecord:id'
+        ]);
+
+        $employees = Employee::select('id', 'name', 'nip', 'department_id')
+                            ->with('department:id,name')
+                            ->where('status', 'active')
+                            ->orderBy('name')
+                            ->get();
+
+        $trainingTypes = TrainingType::select('id', 'name', 'code', 'category')
+                                    ->where('is_active', true)
+                                    ->orderBy('name')
+                                    ->get();
+
+        $trainingProviders = TrainingProvider::select('id', 'name', 'code')
+                                            ->where('is_active', true)
+                                            ->orderBy('name')
+                                            ->get();
 
         return Inertia::render('Certificates/Edit', [
             'certificate' => $certificate,
-            'trainingProviders' => TrainingProvider::select('id', 'name', 'code')->orderBy('name')->get(),
-            'templates' => $this->getCertificateTemplates(),
-            'canEdit' => $this->canEditCertificate($certificate)
+            'employees' => $employees,
+            'trainingTypes' => $trainingTypes,
+            'trainingProviders' => $trainingProviders
         ]);
     }
 
     /**
      * Update certificate
      */
-    public function update(Request $request, Certificate $certificate)
+    public function update(Request $request, Certificate $certificate): RedirectResponse
     {
-        if (!$this->canEditCertificate($certificate)) {
-            return redirect()->back()
-                           ->with('error', 'Certificate cannot be modified in its current status.');
-        }
-
         $validated = $request->validate([
-            'certificate_template' => 'nullable|string',
-            'issued_by' => 'required|string|max:255',
-            'issuer_name' => 'nullable|string|max:255',
+            'certificate_type' => 'required|in:completion,competency,compliance',
+            'issuer_name' => 'required|string|max:255',
             'issuer_title' => 'nullable|string|max:255',
-            'issuer_license' => 'nullable|string|max:100',
-            'valid_from' => 'nullable|date',
+            'issuer_organization' => 'nullable|string|max:255',
+            'issue_date' => 'required|date',
+            'effective_date' => 'nullable|date',
             'expiry_date' => 'nullable|date|after:issue_date',
-            'certificate_description' => 'nullable|string',
-            'competencies_achieved' => 'nullable|array',
-            'final_score' => 'nullable|numeric|min:0|max:100',
+            'status' => 'required|in:draft,issued,revoked,expired,renewed',
+            'verification_status' => 'required|in:pending,verified,invalid,under_review',
+            'score' => 'nullable|numeric|min:0|max:100',
             'passing_score' => 'nullable|numeric|min:0|max:100',
-            'grade' => 'nullable|string|max:10',
+            'achievements' => 'nullable|string',
+            'remarks' => 'nullable|string',
             'is_renewable' => 'boolean',
-            'internal_notes' => 'nullable|string',
-            'certificate_file' => 'nullable|file|mimes:pdf|max:5120'
+            'is_compliance_required' => 'boolean',
+            'compliance_status' => 'required|in:compliant,non_compliant,pending,exempt',
+            'notes' => 'nullable|string',
         ]);
 
-        // Handle file upload
-        if ($request->hasFile('certificate_file')) {
-            // Delete old file
-            if ($certificate->certificate_file_path) {
-                Storage::delete($certificate->certificate_file_path);
-            }
+        try {
+            $certificate->update(array_merge($validated, [
+                'updated_by_id' => auth()->id(),
+            ]));
 
-            $file = $request->file('certificate_file');
-            $path = $file->store('certificates', 'private');
+            return redirect()
+                ->route('certificates.show', $certificate)
+                ->with('success', 'Certificate updated successfully.');
 
-            $validated['certificate_file_path'] = $path;
-            $validated['file_size_kb'] = round($file->getSize() / 1024);
-            $validated['file_hash'] = hash_file('md5', $file->getPathname());
+        } catch (\Exception $e) {
+            return back()
+                ->withInput()
+                ->withErrors(['error' => 'Failed to update certificate: ' . $e->getMessage()]);
         }
-
-        $validated['updated_by_id'] = Auth::id();
-        $certificate->update($validated);
-
-        // Regenerate digital signature if content changed
-        $certificate->generateDigitalSignature();
-
-        return redirect()->route('certificates.show', $certificate)
-                        ->with('success', 'Certificate updated successfully.');
     }
 
     /**
-     * Download certificate file
+     * Delete certificate (soft delete)
      */
-    public function download(Certificate $certificate)
+    public function destroy(Certificate $certificate): RedirectResponse
     {
-        if (!$certificate->certificate_file_path || !Storage::exists($certificate->certificate_file_path)) {
-            abort(404, 'Certificate file not found.');
+        try {
+            $certificate->delete();
+
+            return redirect()
+                ->route('certificates.index')
+                ->with('success', 'Certificate deleted successfully.');
+
+        } catch (\Exception $e) {
+            return back()
+                ->withErrors(['error' => 'Failed to delete certificate: ' . $e->getMessage()]);
         }
+    }
 
-        $certificate->incrementDownloadCount();
+    /**
+     * Bulk actions for certificates
+     */
+    public function bulkAction(Request $request): RedirectResponse
+    {
+        $request->validate([
+            'action' => 'required|in:delete,revoke,verify,export',
+            'certificate_ids' => 'required|array|min:1',
+            'certificate_ids.*' => 'exists:certificates,id'
+        ]);
 
-        $filename = $certificate->certificate_number . '_' .
-                   str_replace(' ', '_', $certificate->employee->name) . '.pdf';
+        $certificates = Certificate::whereIn('id', $request->certificate_ids);
+        $count = $certificates->count();
 
-        return Storage::download($certificate->certificate_file_path, $filename);
+        try {
+            switch ($request->action) {
+                case 'delete':
+                    $certificates->delete();
+                    $message = "{$count} certificates deleted successfully.";
+                    break;
+
+                case 'revoke':
+                    $certificates->update([
+                        'status' => 'revoked',
+                        'updated_by_id' => auth()->id()
+                    ]);
+                    $message = "{$count} certificates revoked successfully.";
+                    break;
+
+                case 'verify':
+                    $certificates->update([
+                        'verification_status' => 'verified',
+                        'last_verified_at' => now(),
+                        'verified_by' => auth()->user()->name,
+                        'updated_by_id' => auth()->id()
+                    ]);
+                    $message = "{$count} certificates verified successfully.";
+                    break;
+
+                case 'export':
+                    // TODO: Implement export functionality
+                    $message = "Export functionality will be implemented soon.";
+                    break;
+            }
+
+            return back()->with('success', $message);
+
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => 'Bulk action failed: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Get certificate statistics for dashboard
+     */
+    private function getCertificateStats(): array
+    {
+        $total = Certificate::count();
+        $active = Certificate::active()->count();
+        $expired = Certificate::expired()->count();
+        $expiring = Certificate::expiring(30)->count();
+        $draft = Certificate::where('status', 'draft')->count();
+        $revoked = Certificate::where('status', 'revoked')->count();
+
+        return [
+            'total' => $total,
+            'active' => $active,
+            'expired' => $expired,
+            'expiring_soon' => $expiring,
+            'draft' => $draft,
+            'revoked' => $revoked,
+            'compliance_rate' => $total > 0 ? round((($active + $expiring) / $total) * 100, 1) : 0
+        ];
+    }
+
+    /**
+     * Generate certificate PDF
+     */
+    public function generatePDF(Certificate $certificate)
+    {
+        // TODO: Implement PDF generation
+        return back()->with('info', 'PDF generation will be implemented soon.');
     }
 
     /**
      * Verify certificate by verification code
      */
-    public function verify($verificationCode)
+    public function verify(Request $request)
     {
-        $certificate = Certificate::where('verification_code', $verificationCode)
-            ->with([
-                'employee:id,name,employee_id',
-                'trainingType:id,name,code,category',
-                'trainingProvider:id,name'
-            ])
-            ->first();
+        $request->validate([
+            'verification_code' => 'required|string'
+        ]);
+
+        $certificate = Certificate::where('verification_code', $request->verification_code)
+                                 ->where('status', 'issued')
+                                 ->with([
+                                     'employee:id,name,nip',
+                                     'trainingType:id,name',
+                                     'trainingProvider:id,name'
+                                 ])
+                                 ->first();
 
         if (!$certificate) {
-            return Inertia::render('Certificates/VerificationResult', [
-                'success' => false,
-                'message' => 'Certificate not found or invalid verification code.',
-                'verificationCode' => $verificationCode
-            ]);
+            return response()->json([
+                'valid' => false,
+                'message' => 'Certificate not found or invalid verification code.'
+            ], 404);
         }
 
-        // Increment verification attempts
-        $certificate->increment('verification_attempts');
-        $certificate->update(['last_verification_attempt' => now()]);
-
-        // Check certificate validity
-        $isValid = $certificate->status === 'active' &&
-                  (!$certificate->expiry_date || $certificate->expiry_date >= now());
-
-        return Inertia::render('Certificates/VerificationResult', [
-            'success' => true,
-            'certificate' => $certificate,
-            'isValid' => $isValid,
-            'verificationMessage' => $this->getVerificationMessage($certificate),
-            'verifiedAt' => now()->toDateTimeString()
+        return response()->json([
+            'valid' => true,
+            'certificate' => [
+                'certificate_number' => $certificate->certificate_number,
+                'employee_name' => $certificate->employee->name,
+                'employee_nip' => $certificate->employee->nip,
+                'training_type' => $certificate->trainingType->name,
+                'issue_date' => $certificate->issue_date->format('Y-m-d'),
+                'expiry_date' => $certificate->expiry_date?->format('Y-m-d'),
+                'status' => $certificate->status,
+                'issuer' => $certificate->issuer_name,
+                'is_expired' => $certificate->isExpired()
+            ]
         ]);
     }
 
     /**
-     * Renew certificate
+     * Public certificate verification page
      */
-    public function renew(Request $request, Certificate $certificate)
+    public function verifyPublic(string $verificationCode)
     {
-        if (!$certificate->is_renewable) {
-            return redirect()->back()
-                           ->with('error', 'This certificate is not renewable.');
+        $certificate = Certificate::where('verification_code', $verificationCode)
+                                 ->where('status', 'issued')
+                                 ->with([
+                                     'employee:id,name,nip',
+                                     'trainingType:id,name',
+                                     'trainingProvider:id,name'
+                                 ])
+                                 ->first();
+
+        return Inertia::render('Public/CertificateVerification', [
+            'certificate' => $certificate,
+            'verificationCode' => $verificationCode
+        ]);
+    }
+
+    /**
+     * Export certificates to Excel
+     */
+    public function exportExcel(Request $request)
+    {
+        // TODO: Implement Excel export
+        return back()->with('info', 'Excel export will be implemented soon.');
+    }
+
+    /**
+     * Export certificates to PDF
+     */
+    public function exportPDF(Request $request)
+    {
+        // TODO: Implement PDF export
+        return back()->with('info', 'PDF export will be implemented soon.');
+    }
+
+    /**
+     * Get compliance report
+     */
+    public function complianceReport(Request $request)
+    {
+        // TODO: Implement compliance report
+        return back()->with('info', 'Compliance report will be implemented soon.');
+    }
+
+    /**
+     * Get expiring certificates report
+     */
+    public function expiringReport(Request $request)
+    {
+        // TODO: Implement expiring report
+        return back()->with('info', 'Expiring certificates report will be implemented soon.');
+    }
+
+    /**
+     * Get employee certificates
+     */
+    public function employeeCertificates(Employee $employee)
+    {
+        $certificates = Certificate::where('employee_id', $employee->id)
+                                 ->with(['trainingType:id,name', 'trainingProvider:id,name'])
+                                 ->orderBy('issue_date', 'desc')
+                                 ->paginate(15);
+
+        return Inertia::render('Certificates/EmployeeCertificates', [
+            'employee' => $employee,
+            'certificates' => $certificates
+        ]);
+    }
+
+    /**
+     * Get training type certificates
+     */
+    public function trainingTypeCertificates(TrainingType $trainingType)
+    {
+        $certificates = Certificate::where('training_type_id', $trainingType->id)
+                                 ->with(['employee:id,name', 'trainingProvider:id,name'])
+                                 ->orderBy('issue_date', 'desc')
+                                 ->paginate(15);
+
+        return Inertia::render('Certificates/TrainingTypeCertificates', [
+            'trainingType' => $trainingType,
+            'certificates' => $certificates
+        ]);
+    }
+
+    /**
+     * Get department certificates
+     */
+    public function departmentCertificates(Department $department)
+    {
+        $certificates = Certificate::whereHas('employee', function($query) use ($department) {
+                                     $query->where('department_id', $department->id);
+                                   })
+                                 ->with(['employee:id,name', 'trainingType:id,name', 'trainingProvider:id,name'])
+                                 ->orderBy('issue_date', 'desc')
+                                 ->paginate(15);
+
+        return Inertia::render('Certificates/DepartmentCertificates', [
+            'department' => $department,
+            'certificates' => $certificates
+        ]);
+    }
+
+    /**
+     * Create renewal certificate
+     */
+    public function createRenewal(Certificate $certificate)
+    {
+        if (!$certificate->canBeRenewed()) {
+            return back()->withErrors(['error' => 'Certificate cannot be renewed at this time.']);
         }
 
-        $validated = $request->validate([
-            'expiry_date' => 'required|date|after:today',
-            'renewal_notes' => 'nullable|string'
-        ]);
+        try {
+            $renewal = $certificate->createRenewal();
 
-        $newCertificate = $certificate->renew([
-            'expiry_date' => $validated['expiry_date'],
-            'internal_notes' => $validated['renewal_notes'] ?? null,
-            'created_by_id' => Auth::id()
-        ]);
+            return redirect()
+                ->route('certificates.show', $renewal)
+                ->with('success', 'Certificate renewal created successfully.');
 
-        // Log activity
-        activity('certificate')
-            ->performedOn($newCertificate)
-            ->causedBy(Auth::user())
-            ->withProperties(['original_certificate_id' => $certificate->id])
-            ->log('Certificate renewed');
-
-        return redirect()->route('certificates.show', $newCertificate)
-                        ->with('success', "Certificate renewed successfully. New certificate number: {$newCertificate->certificate_number}");
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => 'Failed to create renewal: ' . $e->getMessage()]);
+        }
     }
 
     /**
      * Revoke certificate
      */
-    public function revoke(Request $request, Certificate $certificate)
+    public function revoke(Certificate $certificate)
     {
-        $validated = $request->validate([
-            'revocation_reason' => 'required|string|max:500',
-            'revocation_notes' => 'nullable|string'
-        ]);
+        try {
+            $certificate->revoke('Manual revocation by admin');
 
-        $certificate->revoke($validated['revocation_reason'], Auth::id());
+            return back()->with('success', 'Certificate revoked successfully.');
 
-        if (isset($validated['revocation_notes'])) {
-            $certificate->update(['revocation_notes' => $validated['revocation_notes']]);
+        } catch (\Exception $e) {
+            return back()->withErrors(['error' => 'Failed to revoke certificate: ' . $e->getMessage()]);
         }
-
-        return redirect()->back()
-                        ->with('success', 'Certificate revoked successfully.');
-    }
-
-    /**
-     * Suspend certificate
-     */
-    public function suspend(Request $request, Certificate $certificate)
-    {
-        $validated = $request->validate([
-            'suspension_start' => 'required|date',
-            'suspension_end' => 'required|date|after:suspension_start',
-            'suspension_reason' => 'required|string|max:500'
-        ]);
-
-        $certificate->suspend(
-            $validated['suspension_start'],
-            $validated['suspension_end'],
-            $validated['suspension_reason']
-        );
-
-        return redirect()->back()
-                        ->with('success', 'Certificate suspended successfully.');
-    }
-
-    /**
-     * Reactivate suspended certificate
-     */
-    public function reactivate(Certificate $certificate)
-    {
-        if ($certificate->status !== 'suspended') {
-            return redirect()->back()
-                           ->with('error', 'Only suspended certificates can be reactivated.');
-        }
-
-        $certificate->reactivate();
-
-        return redirect()->back()
-                        ->with('success', 'Certificate reactivated successfully.');
-    }
-
-    /**
-     * Verify certificate manually
-     */
-    public function markVerified(Request $request, Certificate $certificate)
-    {
-        $validated = $request->validate([
-            'verification_notes' => 'nullable|string'
-        ]);
-
-        $certificate->verify(Auth::user(), $validated['verification_notes']);
-
-        return redirect()->back()
-                        ->with('success', 'Certificate verified successfully.');
-    }
-
-    /**
-     * Bulk operations
-     */
-    public function bulkAction(Request $request)
-    {
-        $validated = $request->validate([
-            'action' => 'required|in:verify,unverify,delete,export,update_status',
-            'certificate_ids' => 'required|array|min:1',
-            'certificate_ids.*' => 'exists:certificates,id',
-            'new_status' => 'nullable|string',
-            'notes' => 'nullable|string'
-        ]);
-
-        $certificates = Certificate::whereIn('id', $validated['certificate_ids']);
-
-        switch ($validated['action']) {
-            case 'verify':
-                $certificates->update([
-                    'is_verified' => true,
-                    'verification_date' => now(),
-                    'verified_by_id' => Auth::id(),
-                    'verification_notes' => $validated['notes'] ?? null
-                ]);
-                $message = 'Certificates verified successfully.';
-                break;
-
-            case 'unverify':
-                $certificates->update([
-                    'is_verified' => false,
-                    'verification_date' => null,
-                    'verified_by_id' => null,
-                    'verification_notes' => null
-                ]);
-                $message = 'Certificates unverified successfully.';
-                break;
-
-            case 'update_status':
-                if (!$validated['new_status']) {
-                    return redirect()->back()->with('error', 'Status is required.');
-                }
-                $certificates->update(['status' => $validated['new_status']]);
-                $message = "Certificates status updated to {$validated['new_status']}.";
-                break;
-
-            case 'delete':
-                foreach ($certificates->get() as $certificate) {
-                    $this->deleteCertificateFiles($certificate);
-                }
-                $certificates->delete();
-                $message = 'Certificates deleted successfully.';
-                break;
-
-            case 'export':
-                return $this->exportCertificates($validated['certificate_ids']);
-        }
-
-        return redirect()->back()->with('success', $message);
-    }
-
-    /**
-     * Certificate analytics dashboard
-     */
-    public function analytics(Request $request)
-    {
-        $dateRange = $request->get('range', '30'); // Default 30 days
-        $startDate = now()->subDays($dateRange);
-
-        $analytics = Certificate::getAnalytics($startDate, now());
-
-        // Additional analytics
-        $expiryTrend = $this->getExpiryTrend(12);
-        $providerPerformance = $this->getProviderPerformance();
-        $complianceBreakdown = $this->getComplianceBreakdown();
-        $renewalStatistics = $this->getRenewalStatistics();
-
-        return Inertia::render('Certificates/Analytics', [
-            'analytics' => $analytics,
-            'expiryTrend' => $expiryTrend,
-            'providerPerformance' => $providerPerformance,
-            'complianceBreakdown' => $complianceBreakdown,
-            'renewalStatistics' => $renewalStatistics,
-            'dateRange' => $dateRange
-        ]);
-    }
-
-    // ==========================================
-    // PRIVATE HELPER METHODS
-    // ==========================================
-
-    private function getCertificateTemplates()
-    {
-        return [
-            'default' => 'Default Certificate Template',
-            'safety' => 'Safety Training Certificate',
-            'aviation' => 'Aviation Certificate',
-            'technical' => 'Technical Competency Certificate',
-            'compliance' => 'Compliance Training Certificate'
-        ];
-    }
-
-    private function canEditCertificate(Certificate $certificate)
-    {
-        return !in_array($certificate->status, ['revoked', 'renewed', 'cancelled']);
-    }
-
-    private function getCertificateLifecycleEvents(Certificate $certificate)
-    {
-        $events = [];
-
-        $events[] = [
-            'date' => $certificate->issue_date,
-            'event' => 'Certificate Issued',
-            'description' => "Certificate {$certificate->certificate_number} issued",
-            'type' => 'issued'
-        ];
-
-        if ($certificate->verification_date) {
-            $events[] = [
-                'date' => $certificate->verification_date,
-                'event' => 'Certificate Verified',
-                'description' => 'Certificate verified by ' . ($certificate->verifiedBy->name ?? 'System'),
-                'type' => 'verified'
-            ];
-        }
-
-        if ($certificate->revocation_date) {
-            $events[] = [
-                'date' => $certificate->revocation_date,
-                'event' => 'Certificate Revoked',
-                'description' => $certificate->revocation_reason,
-                'type' => 'revoked'
-            ];
-        }
-
-        return collect($events)->sortBy('date')->values();
-    }
-
-    private function getVerificationMessage(Certificate $certificate)
-    {
-        if ($certificate->status === 'revoked') {
-            return 'This certificate has been revoked and is no longer valid.';
-        }
-
-        if ($certificate->status === 'suspended') {
-            return 'This certificate is currently suspended.';
-        }
-
-        if ($certificate->isExpired()) {
-            return 'This certificate has expired and is no longer valid.';
-        }
-
-        if ($certificate->isExpiringSoon()) {
-            $days = $certificate->getDaysUntilExpiry();
-            return "This certificate is valid but expires in {$days} days.";
-        }
-
-        return 'This certificate is valid and active.';
-    }
-
-    private function deleteCertificateFiles(Certificate $certificate)
-    {
-        if ($certificate->certificate_file_path) {
-            Storage::delete($certificate->certificate_file_path);
-        }
-        if ($certificate->qr_code_path) {
-            Storage::delete($certificate->qr_code_path);
-        }
-    }
-
-    private function exportCertificates($certificateIds)
-    {
-        // Implementation for exporting certificates to Excel/PDF
-        // This would use a service class like CertificateExportService
-        return response()->json(['message' => 'Export functionality to be implemented']);
-    }
-
-    private function getExpiryTrend($months)
-    {
-        // Return expiry trend data for charts
-        return [];
-    }
-
-    private function getProviderPerformance()
-    {
-        // Return provider performance metrics
-        return [];
-    }
-
-    private function getComplianceBreakdown()
-    {
-        // Return compliance breakdown data
-        return [];
-    }
-
-    private function getRenewalStatistics()
-    {
-        // Return renewal statistics
-        return [];
     }
 }

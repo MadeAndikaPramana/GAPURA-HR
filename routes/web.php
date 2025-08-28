@@ -54,8 +54,8 @@ Route::get('/dashboard', function () {
     // Add certificate stats if table exists
     if (Schema::hasTable('certificates')) {
         $stats['total_certificates'] = \App\Models\Certificate::count();
-        $stats['active_certificates'] = \App\Models\Certificate::where('status', 'active')->count();
-        $stats['verified_certificates'] = \App\Models\Certificate::where('is_verified', true)->count();
+        $stats['active_certificates_new'] = \App\Models\Certificate::active()->count();
+        $stats['verified_certificates'] = \App\Models\Certificate::where('verification_status', 'verified')->count();
     }
 
     // Calculate compliance rate
@@ -203,7 +203,7 @@ Route::middleware('auth')->group(function () {
     });
 
     // =====================================
-    // CERTIFICATE MANAGEMENT - PHASE 4
+    // CERTIFICATE MANAGEMENT - OPTIMIZED
     // =====================================
     Route::prefix('certificates')->name('certificates.')->group(function () {
         // Basic CRUD operations
@@ -215,50 +215,30 @@ Route::middleware('auth')->group(function () {
         Route::put('/{certificate}', [CertificateController::class, 'update'])->name('update');
         Route::delete('/{certificate}', [CertificateController::class, 'destroy'])->name('destroy');
 
-        // Quick creation from training record
-        Route::post('/create-from-record', [CertificateController::class, 'createFromTrainingRecord'])->name('create-from-record');
-
-        // Certificate lifecycle management
-        Route::post('/{certificate}/renew', [CertificateController::class, 'renew'])->name('renew');
-        Route::post('/{certificate}/revoke', [CertificateController::class, 'revoke'])->name('revoke');
-        Route::post('/{certificate}/suspend', [CertificateController::class, 'suspend'])->name('suspend');
-        Route::post('/{certificate}/reactivate', [CertificateController::class, 'reactivate'])->name('reactivate');
-
-        // Verification operations
-        Route::post('/{certificate}/verify', [CertificateController::class, 'markVerified'])->name('mark-verified');
-        Route::post('/{certificate}/unverify', [CertificateController::class, 'unverify'])->name('unverify');
-        Route::post('/{certificate}/update-status', [CertificateController::class, 'updateStatus'])->name('update-status');
-
-        // File operations
-        Route::get('/{certificate}/download', [CertificateController::class, 'download'])->name('download');
-        Route::post('/{certificate}/upload', [CertificateController::class, 'uploadFile'])->name('upload-file');
-        Route::delete('/{certificate}/remove-file', [CertificateController::class, 'removeFile'])->name('remove-file');
-
         // Bulk operations
         Route::post('/bulk-action', [CertificateController::class, 'bulkAction'])->name('bulk-action');
-        Route::post('/bulk-verify', [CertificateController::class, 'bulkVerify'])->name('bulk-verify');
-        Route::post('/bulk-export', [CertificateController::class, 'bulkExport'])->name('bulk-export');
 
-        // Analytics and reporting
-        Route::get('/analytics/dashboard', [CertificateController::class, 'analytics'])->name('analytics');
-        Route::get('/reports/expiring', [CertificateController::class, 'expiringReport'])->name('reports.expiring');
-        Route::get('/reports/expired', [CertificateController::class, 'expiredReport'])->name('reports.expired');
-        Route::get('/reports/compliance', [CertificateController::class, 'complianceReport'])->name('reports.compliance');
-        Route::get('/reports/renewal-due', [CertificateController::class, 'renewalDueReport'])->name('reports.renewal-due');
+        // Certificate operations
+        Route::post('/{certificate}/generate-pdf', [CertificateController::class, 'generatePDF'])->name('generate-pdf');
+        Route::post('/{certificate}/revoke', [CertificateController::class, 'revoke'])->name('revoke');
+        Route::post('/{certificate}/renew', [CertificateController::class, 'createRenewal'])->name('renew');
 
-        // Export operations
-        Route::get('/export/excel', [CertificateController::class, 'exportExcel'])->name('export.excel');
-        Route::get('/export/pdf', [CertificateController::class, 'exportPdf'])->name('export.pdf');
-        Route::get('/export/compliance-report', [CertificateController::class, 'exportComplianceReport'])->name('export.compliance-report');
+        // Export functionality
+        Route::get('/export/excel', [CertificateController::class, 'exportExcel'])->name('export-excel');
+        Route::get('/export/pdf', [CertificateController::class, 'exportPDF'])->name('export-pdf');
 
-        // Certificate generation
-        Route::post('/generate', [CertificateController::class, 'generateCertificate'])->name('generate');
-        Route::post('/{certificate}/regenerate', [CertificateController::class, 'regenerateCertificate'])->name('regenerate');
-        Route::get('/{certificate}/preview', [CertificateController::class, 'previewCertificate'])->name('preview');
+        // Analytics and reports
+        Route::get('/reports/compliance', [CertificateController::class, 'complianceReport'])->name('compliance-report');
+        Route::get('/reports/expiring', [CertificateController::class, 'expiringReport'])->name('expiring-report');
 
-        // QR Code operations
-        Route::get('/{certificate}/qr-code', [CertificateController::class, 'generateQrCode'])->name('qr-code');
-        Route::get('/{certificate}/qr-code/download', [CertificateController::class, 'downloadQrCode'])->name('qr-code.download');
+        // Employee-specific certificates
+        Route::get('/employee/{employee}/certificates', [CertificateController::class, 'employeeCertificates'])->name('employee-certificates');
+
+        // Training type specific certificates
+        Route::get('/training-type/{trainingType}/certificates', [CertificateController::class, 'trainingTypeCertificates'])->name('training-type-certificates');
+
+        // Department specific certificates
+        Route::get('/department/{department}/certificates', [CertificateController::class, 'departmentCertificates'])->name('department-certificates');
     });
 
     // =====================================
@@ -281,15 +261,11 @@ Route::middleware('auth')->group(function () {
             }
         });
 
-        // Certificate API
+        // Certificate API - Simplified
         Route::prefix('certificates')->name('certificates.')->group(function () {
             Route::get('/search', [CertificateController::class, 'apiSearch'])->name('search');
             Route::get('/quick-stats', [CertificateController::class, 'apiQuickStats'])->name('quick-stats');
             Route::get('/expiry-alerts', [CertificateController::class, 'apiExpiryAlerts'])->name('expiry-alerts');
-            Route::get('/{certificate}/status', [CertificateController::class, 'apiGetStatus'])->name('status');
-            Route::post('/{certificate}/update-status', [CertificateController::class, 'apiUpdateStatus'])->name('update-status');
-            Route::get('/templates', [CertificateController::class, 'apiGetTemplates'])->name('templates');
-            Route::get('/analytics/{period}', [CertificateController::class, 'apiAnalytics'])->name('analytics');
         });
     });
 
@@ -309,15 +285,12 @@ Route::middleware('auth')->group(function () {
 });
 
 // =====================================
-// PUBLIC ROUTES (No Authentication)
+// PUBLIC ROUTES (No Authentication) - OPTIMIZED
 // =====================================
-// Public certificate verification
+// Public certificate verification - Simplified
 Route::prefix('verify')->name('certificates.')->group(function () {
-    Route::get('/{verificationCode}', [CertificateController::class, 'verify'])->name('verify');
-    Route::post('/check', [CertificateController::class, 'checkVerification'])->name('check');
+    Route::post('/', [CertificateController::class, 'verify'])->name('verify');
+    Route::get('/{verificationCode}', [CertificateController::class, 'verifyPublic'])->name('verify-public');
 });
-
-// Public certificate validation API
-Route::post('/api/certificates/validate', [CertificateController::class, 'validateCertificate'])->name('public.api.certificates.validate');
 
 require __DIR__.'/auth.php';

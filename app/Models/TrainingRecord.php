@@ -49,6 +49,10 @@ class TrainingRecord extends Model
         'reminder_count' => 'integer'
     ];
 
+    // =================================================================
+    // CORE RELATIONSHIPS
+    // =================================================================
+
     /**
      * Relationship to Employee
      */
@@ -88,6 +92,41 @@ class TrainingRecord extends Model
     {
         return $this->belongsTo(User::class, 'updated_by_id');
     }
+
+    // =================================================================
+    // CERTIFICATE RELATIONSHIPS - NEW ADDITION
+    // =================================================================
+
+    /**
+     * Get the certificate associated with this training record
+     */
+    public function certificate()
+    {
+        return $this->hasOne(Certificate::class);
+    }
+
+    /**
+     * Get all certificates for this training record (including renewals)
+     */
+    public function certificates()
+    {
+        return $this->hasMany(Certificate::class);
+    }
+
+    /**
+     * Get the latest/active certificate
+     */
+    public function activeCertificate()
+    {
+        return $this->hasOne(Certificate::class)
+                    ->where('status', 'issued')
+                    ->whereNull('deleted_at')
+                    ->latest('issue_date');
+    }
+
+    // =================================================================
+    // EXISTING SCOPES - PRESERVED
+    // =================================================================
 
     /**
      * Scope for active certificates
@@ -156,6 +195,47 @@ class TrainingRecord extends Model
                     ->where('expiry_date', '<=', Carbon::now()->addDays($days))
                     ->where('expiry_date', '>=', Carbon::now());
     }
+
+    // =================================================================
+    // CERTIFICATE-SPECIFIC SCOPES - NEW ADDITION
+    // =================================================================
+
+    /**
+     * Scope for training records with active certificates
+     */
+    public function scopeWithActiveCertificate($query)
+    {
+        return $query->whereHas('certificate', function($q) {
+            $q->where('status', 'issued')
+              ->where(function($subQ) {
+                  $subQ->whereNull('expiry_date')
+                       ->orWhere('expiry_date', '>', now());
+              });
+        });
+    }
+
+    /**
+     * Scope for training records without certificates
+     */
+    public function scopeWithoutCertificate($query)
+    {
+        return $query->doesntHave('certificate');
+    }
+
+    /**
+     * Scope for training records with expired certificates
+     */
+    public function scopeWithExpiredCertificate($query)
+    {
+        return $query->whereHas('certificate', function($q) {
+            $q->where('status', 'issued')
+              ->where('expiry_date', '<=', now());
+        });
+    }
+
+    // =================================================================
+    // EXISTING BUSINESS LOGIC - PRESERVED
+    // =================================================================
 
     /**
      * Check if certificate is expiring soon
@@ -246,6 +326,82 @@ class TrainingRecord extends Model
 
         $this->save();
     }
+
+    // =================================================================
+    // CERTIFICATE-SPECIFIC BUSINESS LOGIC - NEW ADDITION
+    // =================================================================
+
+    /**
+     * Check if this training record has an active certificate
+     */
+    public function hasActiveCertificate(): bool
+    {
+        return $this->activeCertificate()->exists();
+    }
+
+    /**
+     * Get certificate status for this training record
+     */
+    public function getCertificateStatusAttribute(): string
+    {
+        $activeCertificate = $this->activeCertificate;
+
+        if (!$activeCertificate) {
+            return 'no_certificate';
+        }
+
+        if ($activeCertificate->isExpired()) {
+            return 'certificate_expired';
+        }
+
+        if ($activeCertificate->isExpiringSoon(30)) {
+            return 'certificate_expiring';
+        }
+
+        return 'certificate_active';
+    }
+
+    /**
+     * Get the main certificate number (from certificate or training record)
+     */
+    public function getCertificateNumberAttribute()
+    {
+        // Check if there's an active certificate first
+        if ($this->activeCertificate) {
+            return $this->activeCertificate->certificate_number;
+        }
+
+        // Fall back to the certificate_number field in training_records
+        return $this->attributes['certificate_number'] ?? null;
+    }
+
+    /**
+     * Create a certificate from this training record
+     */
+    public function createCertificate(array $additionalData = [])
+    {
+        $certificateData = array_merge([
+            'training_record_id' => $this->id,
+            'employee_id' => $this->employee_id,
+            'training_type_id' => $this->training_type_id,
+            'training_provider_id' => $this->training_provider_id,
+            'certificate_type' => 'completion',
+            'issue_date' => $this->completion_date ?? $this->issue_date ?? now(),
+            'expiry_date' => $this->expiry_date,
+            'score' => $this->score,
+            'passing_score' => $this->passing_score,
+            'status' => 'issued',
+            'verification_status' => 'pending',
+            'is_renewable' => true,
+            'notes' => "Generated from training record #{$this->id}",
+        ], $additionalData);
+
+        return Certificate::create($certificateData);
+    }
+
+    // =================================================================
+    // EXISTING BOOT METHOD - PRESERVED
+    // =================================================================
 
     /**
      * Boot method to auto-update compliance status
