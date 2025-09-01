@@ -1,14 +1,24 @@
 <?php
+// app/Models/TrainingRecord.php
 
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 
 class TrainingRecord extends Model
 {
     use HasFactory;
+
+    /**
+     * Simplified status options - only active or expired
+     */
+    const STATUS_ACTIVE = 'active';
+    const STATUS_EXPIRED = 'expired';
 
     protected $fillable = [
         'employee_id',
@@ -20,8 +30,8 @@ class TrainingRecord extends Model
         'completion_date',
         'expiry_date',
         'training_date',
-        'status',
-        'compliance_status',
+        'status', // Only 'active' or 'expired'
+        'compliance_status', // Keep for backward compatibility, will sync with status
         'batch_number',
         'score',
         'passing_score',
@@ -41,390 +51,286 @@ class TrainingRecord extends Model
         'completion_date' => 'date',
         'expiry_date' => 'date',
         'training_date' => 'date',
-        'reminder_sent_at' => 'datetime',
         'score' => 'decimal:2',
         'passing_score' => 'decimal:2',
         'training_hours' => 'decimal:2',
         'cost' => 'decimal:2',
-        'reminder_count' => 'integer'
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime'
     ];
 
-    // =================================================================
-    // CORE RELATIONSHIPS
-    // =================================================================
-
-    /**
-     * Relationship to Employee
-     */
-    public function employee()
+    // Relationships
+    public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
     }
 
-    /**
-     * Relationship to Training Type
-     */
-    public function trainingType()
+    public function trainingType(): BelongsTo
     {
         return $this->belongsTo(TrainingType::class);
     }
 
-    /**
-     * Relationship to Training Provider
-     */
-    public function trainingProvider()
+    public function trainingProvider(): BelongsTo
     {
         return $this->belongsTo(TrainingProvider::class);
     }
 
-    /**
-     * Relationship to User who created this record
-     */
-    public function createdBy()
-    {
-        return $this->belongsTo(User::class, 'created_by_id');
-    }
-
-    /**
-     * Relationship to User who last updated this record
-     */
-    public function updatedBy()
-    {
-        return $this->belongsTo(User::class, 'updated_by_id');
-    }
-
-    // =================================================================
-    // CERTIFICATE RELATIONSHIPS - NEW ADDITION
-    // =================================================================
-
-    /**
-     * Get the certificate associated with this training record
-     */
-    public function certificate()
+    public function certificate(): HasOne
     {
         return $this->hasOne(Certificate::class);
     }
 
-    /**
-     * Get all certificates for this training record (including renewals)
-     */
-    public function certificates()
+    public function createdBy(): BelongsTo
     {
-        return $this->hasMany(Certificate::class);
+        return $this->belongsTo(User::class, 'created_by_id');
     }
 
-    /**
-     * Get the latest/active certificate
-     */
-    public function activeCertificate()
+    public function updatedBy(): BelongsTo
     {
-        return $this->hasOne(Certificate::class)
-                    ->where('status', 'issued')
-                    ->whereNull('deleted_at')
-                    ->latest('issue_date');
+        return $this->belongsTo(User::class, 'updated_by_id');
     }
 
-    // =================================================================
-    // EXISTING SCOPES - PRESERVED
-    // =================================================================
-
-    /**
-     * Scope for active certificates
-     */
+    // Scopes
     public function scopeActive($query)
     {
-        return $query->where('status', 'active');
+        return $query->where('status', self::STATUS_ACTIVE);
     }
 
-    /**
-     * Scope for completed training
-     */
-    public function scopeCompleted($query)
-    {
-        return $query->where('status', 'completed');
-    }
-
-    /**
-     * Scope for compliant certificates
-     */
-    public function scopeCompliant($query)
-    {
-        return $query->where('compliance_status', 'compliant');
-    }
-
-    /**
-     * Scope for expiring certificates
-     */
-    public function scopeExpiring($query)
-    {
-        return $query->where('compliance_status', 'expiring_soon');
-    }
-
-    /**
-     * Scope for expired certificates
-     */
     public function scopeExpired($query)
     {
-        return $query->where('compliance_status', 'expired');
+        return $query->where('status', self::STATUS_EXPIRED);
     }
 
-    /**
-     * Scope for certificates by provider
-     */
+    public function scopeExpiringSoon($query, $days = 30)
+    {
+        return $query->where('status', self::STATUS_ACTIVE)
+                    ->whereNotNull('expiry_date')
+                    ->whereBetween('expiry_date', [
+                        Carbon::now()->toDateString(),
+                        Carbon::now()->addDays($days)->toDateString()
+                    ]);
+    }
+
+    public function scopeByEmployee($query, $employeeId)
+    {
+        return $query->where('employee_id', $employeeId);
+    }
+
+    public function scopeByTrainingType($query, $trainingTypeId)
+    {
+        return $query->where('training_type_id', $trainingTypeId);
+    }
+
     public function scopeByProvider($query, $providerId)
     {
         return $query->where('training_provider_id', $providerId);
     }
 
-    /**
-     * Scope for certificates by department
-     */
-    public function scopeByDepartment($query, $departmentId)
+    // Accessors
+    public function getIsActiveAttribute(): bool
     {
-        return $query->whereHas('employee', function($q) use ($departmentId) {
-            $q->where('department_id', $departmentId);
-        });
+        return $this->status === self::STATUS_ACTIVE;
     }
 
-    /**
-     * Scope for certificates expiring within days
-     */
-    public function scopeExpiringWithinDays($query, $days = 30)
+    public function getIsExpiredAttribute(): bool
     {
-        return $query->whereNotNull('expiry_date')
-                    ->where('expiry_date', '<=', Carbon::now()->addDays($days))
-                    ->where('expiry_date', '>=', Carbon::now());
+        return $this->status === self::STATUS_EXPIRED;
     }
 
-    // =================================================================
-    // CERTIFICATE-SPECIFIC SCOPES - NEW ADDITION
-    // =================================================================
-
-    /**
-     * Scope for training records with active certificates
-     */
-    public function scopeWithActiveCertificate($query)
+    public function getIsExpiringSoonAttribute(): bool
     {
-        return $query->whereHas('certificate', function($q) {
-            $q->where('status', 'issued')
-              ->where(function($subQ) {
-                  $subQ->whereNull('expiry_date')
-                       ->orWhere('expiry_date', '>', now());
-              });
-        });
-    }
-
-    /**
-     * Scope for training records without certificates
-     */
-    public function scopeWithoutCertificate($query)
-    {
-        return $query->doesntHave('certificate');
-    }
-
-    /**
-     * Scope for training records with expired certificates
-     */
-    public function scopeWithExpiredCertificate($query)
-    {
-        return $query->whereHas('certificate', function($q) {
-            $q->where('status', 'issued')
-              ->where('expiry_date', '<=', now());
-        });
-    }
-
-    // =================================================================
-    // EXISTING BUSINESS LOGIC - PRESERVED
-    // =================================================================
-
-    /**
-     * Check if certificate is expiring soon
-     */
-    public function isExpiringSoon($days = 30)
-    {
-        if (!$this->expiry_date) return false;
-
-        return Carbon::parse($this->expiry_date)->between(
-            Carbon::now(),
-            Carbon::now()->addDays($days)
-        );
-    }
-
-    /**
-     * Check if certificate is expired
-     */
-    public function isExpired()
-    {
-        if (!$this->expiry_date) return false;
-
-        return Carbon::parse($this->expiry_date)->isPast();
-    }
-
-    /**
-     * Get status badge color
-     */
-    public function getStatusColorAttribute()
-    {
-        return match($this->compliance_status) {
-            'compliant' => 'green',
-            'expiring_soon' => 'yellow',
-            'expired' => 'red',
-            default => 'gray'
-        };
-    }
-
-    /**
-     * Get status text
-     */
-    public function getStatusTextAttribute()
-    {
-        return match($this->compliance_status) {
-            'compliant' => 'Active',
-            'expiring_soon' => 'Expiring Soon',
-            'expired' => 'Expired',
-            default => 'Unknown'
-        };
-    }
-
-    /**
-     * Get days until expiry
-     */
-    public function getDaysUntilExpiryAttribute()
-    {
-        if (!$this->expiry_date) return null;
-
-        $now = Carbon::now();
-        $expiry = Carbon::parse($this->expiry_date);
-
-        if ($expiry->isPast()) {
-            return -$expiry->diffInDays($now);
+        if ($this->status !== self::STATUS_ACTIVE || !$this->expiry_date) {
+            return false;
         }
 
-        return $expiry->diffInDays($now);
+        return Carbon::parse($this->expiry_date)->diffInDays(Carbon::today(), false) <= 30;
     }
 
-    /**
-     * Auto-update compliance status based on expiry date
-     */
-    public function updateComplianceStatus()
+    public function getDaysUntilExpiryAttribute(): ?int
+    {
+        if (!$this->expiry_date || $this->status !== self::STATUS_ACTIVE) {
+            return null;
+        }
+
+        $days = Carbon::today()->diffInDays(Carbon::parse($this->expiry_date), false);
+        return $days >= 0 ? $days : 0;
+    }
+
+    public function getDaysPassedExpiryAttribute(): ?int
+    {
+        if (!$this->expiry_date || $this->status === self::STATUS_ACTIVE) {
+            return null;
+        }
+
+        return Carbon::parse($this->expiry_date)->diffInDays(Carbon::today(), false);
+    }
+
+    public function getStatusBadgeClassAttribute(): string
+    {
+        return match($this->status) {
+            self::STATUS_ACTIVE => $this->is_expiring_soon
+                ? 'bg-yellow-100 text-yellow-800'
+                : 'bg-green-100 text-green-800',
+            self::STATUS_EXPIRED => 'bg-red-100 text-red-800',
+            default => 'bg-gray-100 text-gray-800'
+        };
+    }
+
+    public function getStatusDisplayAttribute(): string
+    {
+        if ($this->status === self::STATUS_ACTIVE && $this->is_expiring_soon) {
+            return 'Expiring Soon';
+        }
+
+        return match($this->status) {
+            self::STATUS_ACTIVE => 'Active',
+            self::STATUS_EXPIRED => 'Expired',
+            default => ucfirst($this->status)
+        };
+    }
+
+    public function getComplianceStatusAttribute(): string
+    {
+        // For backward compatibility, map to old compliance status logic
+        if ($this->status === self::STATUS_EXPIRED) {
+            return 'expired';
+        }
+
+        if ($this->is_expiring_soon) {
+            return 'expiring_soon';
+        }
+
+        return 'compliant';
+    }
+
+    // Methods
+    public function updateStatus(): bool
     {
         if (!$this->expiry_date) {
-            $this->compliance_status = 'compliant';
-            return;
+            // No expiry date means permanent certificate
+            $this->status = self::STATUS_ACTIVE;
+            return $this->save();
         }
 
-        $now = Carbon::now();
-        $expiry = Carbon::parse($this->expiry_date);
+        $now = Carbon::now()->startOfDay();
+        $expiryDate = Carbon::parse($this->expiry_date)->startOfDay();
 
-        if ($expiry->isPast()) {
-            $this->compliance_status = 'expired';
-        } elseif ($expiry->diffInDays($now) <= 30) {
-            $this->compliance_status = 'expiring_soon';
-        } else {
-            $this->compliance_status = 'compliant';
+        $newStatus = $expiryDate->lt($now) ? self::STATUS_EXPIRED : self::STATUS_ACTIVE;
+
+        if ($this->status !== $newStatus) {
+            $oldStatus = $this->status;
+            $this->status = $newStatus;
+
+            $saved = $this->save();
+
+            // Also update related certificate if exists
+            if ($saved && $this->certificate) {
+                $this->certificate->status = $newStatus;
+                $this->certificate->save();
+            }
+
+            return $saved;
         }
 
-        $this->save();
+        return true;
     }
 
-    // =================================================================
-    // CERTIFICATE-SPECIFIC BUSINESS LOGIC - NEW ADDITION
-    // =================================================================
-
-    /**
-     * Check if this training record has an active certificate
-     */
-    public function hasActiveCertificate(): bool
+    public function markAsExpired(): bool
     {
-        return $this->activeCertificate()->exists();
-    }
+        $this->status = self::STATUS_EXPIRED;
+        $saved = $this->save();
 
-    /**
-     * Get certificate status for this training record
-     */
-    public function getCertificateStatusAttribute(): string
-    {
-        $activeCertificate = $this->activeCertificate;
-
-        if (!$activeCertificate) {
-            return 'no_certificate';
+        // Also update related certificate
+        if ($saved && $this->certificate) {
+            $this->certificate->markAsExpired();
         }
 
-        if ($activeCertificate->isExpired()) {
-            return 'certificate_expired';
-        }
-
-        if ($activeCertificate->isExpiringSoon(30)) {
-            return 'certificate_expiring';
-        }
-
-        return 'certificate_active';
+        return $saved;
     }
 
-    /**
-     * Get the main certificate number (from certificate or training record)
-     */
-    public function getCertificateNumberAttribute()
+    public function markAsActive(): bool
     {
-        // Check if there's an active certificate first
-        if ($this->activeCertificate) {
-            return $this->activeCertificate->certificate_number;
+        $this->status = self::STATUS_ACTIVE;
+        $saved = $this->save();
+
+        // Also update related certificate
+        if ($saved && $this->certificate) {
+            $this->certificate->markAsActive();
         }
 
-        // Fall back to the certificate_number field in training_records
-        return $this->attributes['certificate_number'] ?? null;
+        return $saved;
     }
 
-    /**
-     * Create a certificate from this training record
-     */
-    public function createCertificate(array $additionalData = [])
+    // Static methods
+    public static function updateExpiredRecords(): int
     {
-        $certificateData = array_merge([
-            'training_record_id' => $this->id,
-            'employee_id' => $this->employee_id,
-            'training_type_id' => $this->training_type_id,
-            'training_provider_id' => $this->training_provider_id,
-            'certificate_type' => 'completion',
-            'issue_date' => $this->completion_date ?? $this->issue_date ?? now(),
-            'expiry_date' => $this->expiry_date,
-            'score' => $this->score,
-            'passing_score' => $this->passing_score,
-            'status' => 'issued',
-            'verification_status' => 'pending',
-            'is_renewable' => true,
-            'notes' => "Generated from training record #{$this->id}",
-        ], $additionalData);
+        $count = 0;
 
-        return Certificate::create($certificateData);
+        // Find active records that have passed their expiry date
+        $expiredRecords = self::where('status', self::STATUS_ACTIVE)
+            ->whereNotNull('expiry_date')
+            ->whereDate('expiry_date', '<', Carbon::today())
+            ->get();
+
+        foreach ($expiredRecords as $record) {
+            $record->markAsExpired();
+            $count++;
+        }
+
+        return $count;
     }
 
-    // =================================================================
-    // EXISTING BOOT METHOD - PRESERVED
-    // =================================================================
-
-    /**
-     * Boot method to auto-update compliance status
-     */
-    protected static function booted()
+    public static function getStatusOptions(): array
     {
-        static::saving(function ($trainingRecord) {
-            // Auto-calculate compliance status on save
-            if ($trainingRecord->isDirty('expiry_date') || !$trainingRecord->compliance_status) {
-                if ($trainingRecord->expiry_date) {
-                    $now = Carbon::now();
-                    $expiry = Carbon::parse($trainingRecord->expiry_date);
+        return [
+            self::STATUS_ACTIVE => 'Active',
+            self::STATUS_EXPIRED => 'Expired'
+        ];
+    }
 
-                    if ($expiry->isPast()) {
-                        $trainingRecord->compliance_status = 'expired';
-                    } elseif ($expiry->diffInDays($now) <= 30) {
-                        $trainingRecord->compliance_status = 'expiring_soon';
-                    } else {
-                        $trainingRecord->compliance_status = 'compliant';
-                    }
-                } else {
-                    $trainingRecord->compliance_status = 'compliant';
-                }
+    public static function getComplianceStats(): array
+    {
+        $total = self::count();
+        $active = self::where('status', self::STATUS_ACTIVE)->count();
+        $expired = self::where('status', self::STATUS_EXPIRED)->count();
+        $expiringSoon = self::active()
+            ->whereNotNull('expiry_date')
+            ->whereDate('expiry_date', '<=', Carbon::now()->addDays(30))
+            ->count();
+
+        return [
+            'total' => $total,
+            'active' => $active,
+            'expired' => $expired,
+            'expiring_soon' => $expiringSoon,
+            'compliance_rate' => $total > 0 ? round(($active / $total) * 100, 2) : 0
+        ];
+    }
+
+    // Boot method
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::saving(function ($record) {
+            // Auto-update status based on expiry date when saving
+            if ($record->expiry_date) {
+                $now = Carbon::now()->startOfDay();
+                $expiryDate = Carbon::parse($record->expiry_date)->startOfDay();
+                $record->status = $expiryDate->lt($now) ? self::STATUS_EXPIRED : self::STATUS_ACTIVE;
+            }
+
+            // Always sync compliance_status with status for backward compatibility
+            if (Schema::hasColumn('training_records', 'compliance_status')) {
+                $record->compliance_status = $record->status;
+            }
+        });
+
+        static::saved(function ($record) {
+            // Sync status with related certificate
+            if ($record->certificate) {
+                $record->certificate->status = $record->status;
+                $record->certificate->save();
             }
         });
     }
