@@ -1,75 +1,116 @@
 <?php
+// app/Http/Controllers/EmployeesController.php (Updated for Container System)
 
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\Department;
-use App\Models\TrainingRecord;
+use App\Models\EmployeeCertificate;
+use App\Models\CertificateType;
+use App\Services\FileUploadService;
+use App\Exports\EmployeesExport;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
+use Maatwebsite\Excel\Facades\Excel;
 
-class EmployeeController extends Controller
+class EmployeesController extends Controller
 {
+    protected FileUploadService $fileUploadService;
+
+    public function __construct(FileUploadService $fileUploadService)
+    {
+        $this->fileUploadService = $fileUploadService;
+    }
+
     /**
-     * Display a listing of employees
+     * Display a listing of employees with container preview
      */
     public function index(Request $request)
     {
-        $query = Employee::with(['department']);
+        $query = Employee::with(['department', 'activeCertificates', 'expiredCertificates', 'expiringSoonCertificates']);
 
-        // Apply filters
+        // Search functionality
         if ($request->filled('search')) {
-            $search = $request->get('search');
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('employee_id', 'like', "%{$search}%")
-                  ->orWhere('position', 'like', "%{$search}%");
-            });
+            $query->search($request->search);
         }
 
+        // Department filter
         if ($request->filled('department')) {
-            $query->where('department_id', $request->get('department'));
+            $query->where('department_id', $request->department);
         }
 
+        // Status filter
         if ($request->filled('status')) {
-            $query->where('status', $request->get('status'));
+            $query->where('status', $request->status);
         }
 
-        $employees = $query->orderBy('created_at', 'desc')->paginate(15);
+        // Compliance filter
+        if ($request->filled('compliance')) {
+            switch ($request->compliance) {
+                case 'compliant':
+                    $query->whereDoesntHave('expiredCertificates')
+                          ->whereDoesntHave('expiringSoonCertificates');
+                    break;
+                case 'expiring_soon':
+                    $query->whereHas('expiringSoonCertificates');
+                    break;
+                case 'expired':
+                    $query->whereHas('expiredCertificates');
+                    break;
+            }
+        }
 
-        // PERBAIKAN: Calculate statistics untuk frontend
-        $stats = [
-            'total' => Employee::count(),
-            'active' => Employee::where('status', 'active')->count(),
-            'inactive' => Employee::where('status', 'inactive')->count(),
-            'by_department' => Department::withCount('employees')->get()->map(function ($dept) {
-                return [
-                    'name' => $dept->name,
-                    'count' => $dept->employees_count
-                ];
-            }),
-            'departments_count' => Department::count(),
-            'training_records_count' => TrainingRecord::count(),
-            'active_training_records' => TrainingRecord::where('status', 'active')->count(),
-            'expired_training_records' => TrainingRecord::where('status', 'expired')->count(),
-            'expiring_soon_records' => TrainingRecord::where('status', 'expiring_soon')->count(),
-        ];
+        $employees = $query->paginate(15)->withQueryString();
 
-        // Calculate compliance rate
-        $totalRecords = $stats['training_records_count'];
-        $stats['compliance_rate'] = $totalRecords > 0
-            ? round(($stats['active_training_records'] / $totalRecords) * 100, 1)
-            : 0;
+        // Add compliance statistics to each employee
+        $employees->getCollection()->transform(function ($employee) {
+            $employee->compliance = $employee->getComplianceStatistics();
+            return $employee;
+        });
 
         return Inertia::render('Employees/Index', [
             'employees' => $employees,
-            'departments' => Department::all(['id', 'name']),
-            'filters' => $request->only(['search', 'department', 'status']),
-            'stats' => $stats // PERBAIKAN: Kirim stats ke frontend
+            'departments' => Department::active()->get(['id', 'name']),
+            'filters' => $request->only(['search', 'department', 'status', 'compliance']),
+            'stats' => $this->getDashboardStats()
         ]);
+    }
+
+    /**
+     * Show the employee container (main employee view)
+     */
+    public function show(Employee $employee)
+    {
+        $employee->load([
+            'department',
+            'supervisor',
+            'subordinates',
+            'employeeCertificates.certificateType',
+            'employeeCertificates' => function($query) {
+                $query->orderBy('issue_date', 'desc');
+            }
+        ]);
+
+        // Add compliance statistics
+        $employee->compliance = $employee->getComplianceStatistics();
+
+        // Group certificates by type for better display
+        $employee->certificatesByType = $employee->getCurrentCertificatesByType();
+        $employee->certificateHistory = $employee->getCertificateHistoryByType();
+
+        return Inertia::render('Employees/Container', [
+            'employee' => $employee
+        ]);
+    }
+
+    /**
+     * NEW: Show employee container (alias for show)
+     */
+    public function container(Employee $employee)
+    {
+        return $this->show($employee);
     }
 
     /**
@@ -78,7 +119,9 @@ class EmployeeController extends Controller
     public function create()
     {
         return Inertia::render('Employees/Create', [
-            'departments' => Department::all(['id', 'name'])
+            'departments' => Department::active()->get(['id', 'name']),
+            'supervisors' => Employee::where('status', 'active')->get(['id', 'name', 'employee_id']),
+            'backgroundCheckStatuses' => $this->getBackgroundCheckStatuses()
         ]);
     }
 
@@ -88,248 +131,372 @@ class EmployeeController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'employee_id' => 'required|string|max:20|unique:employees',
+            'employee_id' => 'required|string|unique:employees,employee_id',
             'name' => 'required|string|max:255',
-            'department_id' => 'nullable|exists:departments,id',
-            'position' => 'nullable|string|max:100',
-            'status' => 'required|in:active,inactive',
+            'email' => 'nullable|email|unique:employees,email',
+            'phone' => 'nullable|string|max:20',
+            'department_id' => 'required|exists:departments,id',
+            'position' => 'required|string|max:255',
+            'position_level' => 'nullable|string|max:100',
+            'employment_type' => 'nullable|string|max:100',
+            'hire_date' => 'required|date',
+            'supervisor_id' => 'nullable|exists:employees,id',
+            'status' => 'required|in:active,inactive,terminated',
             'background_check_date' => 'nullable|date',
-            'background_check_notes' => 'nullable|string'
+            'background_check_status' => 'nullable|string',
+            'background_check_notes' => 'nullable|string',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
+            'notes' => 'nullable|string'
         ]);
 
-        Employee::create($request->all());
+        DB::beginTransaction();
 
-        return redirect()->route('employees.index')
-            ->with('success', 'Employee berhasil ditambahkan.');
-    }
+        try {
+            $employee = Employee::create($request->all());
 
-    /**
-     * Display the specified employee with training records
-     */
-    public function show(Employee $employee)
-    {
-        // Load employee with department and training records
-        $employee->load([
-            'department',
-            'trainingRecords' => function($query) {
-                $query->with('trainingType')->orderBy('expiry_date', 'desc');
+            // Handle background check files if uploaded
+            if ($request->hasFile('background_check_files')) {
+                $uploadedFiles = $this->fileUploadService->uploadBackgroundCheckFiles(
+                    $employee->id,
+                    $request->file('background_check_files')
+                );
+
+                foreach ($uploadedFiles as $fileData) {
+                    $employee->addBackgroundCheckFile($fileData);
+                }
             }
-        ]);
 
-        // Calculate training statistics
-        $trainingStats = [
-            'total' => $employee->trainingRecords->count(),
-            'active' => $employee->trainingRecords->where('status', 'active')->count(),
-            'expiring_soon' => $employee->trainingRecords->where('status', 'expiring_soon')->count(),
-            'expired' => $employee->trainingRecords->where('status', 'expired')->count(),
-        ];
+            DB::commit();
 
-        // Calculate compliance rate
-        $trainingStats['compliance_rate'] = $trainingStats['total'] > 0
-            ? round(($trainingStats['active'] / $trainingStats['total']) * 100, 2)
-            : 0;
+            Log::info('Employee created', ['employee_id' => $employee->employee_id, 'name' => $employee->name]);
 
-        // Get recent activities (last 5 training records)
-        $recentActivities = $employee->trainingRecords()
-            ->with('trainingType')
-            ->orderBy('created_at', 'desc')
-            ->limit(5)
-            ->get();
+            return redirect()->route('employees.container', $employee)->with('success', 'Employee created successfully.');
 
-        return Inertia::render('Employees/Show', [
-            'employee' => $employee,
-            'trainingStats' => $trainingStats,
-            'recentActivities' => $recentActivities
-        ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to create employee', ['error' => $e->getMessage()]);
+
+            return back()->withErrors(['error' => 'Failed to create employee: ' . $e->getMessage()]);
+        }
     }
 
     /**
-     * Show the form for editing the specified employee
+     * Show the form for editing an employee
      */
     public function edit(Employee $employee)
     {
+        $employee->load('department', 'supervisor');
+
         return Inertia::render('Employees/Edit', [
             'employee' => $employee,
-            'departments' => Department::all(['id', 'name'])
+            'departments' => Department::active()->get(['id', 'name']),
+            'supervisors' => Employee::where('status', 'active')
+                                   ->where('id', '!=', $employee->id)
+                                   ->get(['id', 'name', 'employee_id']),
+            'backgroundCheckStatuses' => $this->getBackgroundCheckStatuses()
         ]);
     }
 
     /**
-     * Update the specified employee
+     * Update an employee
      */
     public function update(Request $request, Employee $employee)
     {
         $request->validate([
-            'employee_id' => 'required|string|max:20|unique:employees,employee_id,' . $employee->id,
+            'employee_id' => 'required|string|unique:employees,employee_id,' . $employee->id,
             'name' => 'required|string|max:255',
-            'department_id' => 'nullable|exists:departments,id',
-            'position' => 'nullable|string|max:100',
-            'status' => 'required|in:active,inactive',
+            'email' => 'nullable|email|unique:employees,email,' . $employee->id,
+            'phone' => 'nullable|string|max:20',
+            'department_id' => 'required|exists:departments,id',
+            'position' => 'required|string|max:255',
+            'position_level' => 'nullable|string|max:100',
+            'employment_type' => 'nullable|string|max:100',
+            'hire_date' => 'required|date',
+            'supervisor_id' => 'nullable|exists:employees,id',
+            'status' => 'required|in:active,inactive,terminated',
             'background_check_date' => 'nullable|date',
-            'background_check_notes' => 'nullable|string'
+            'background_check_status' => 'nullable|string',
+            'background_check_notes' => 'nullable|string',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
+            'notes' => 'nullable|string'
         ]);
 
-        $employee->update($request->all());
+        DB::beginTransaction();
 
-        return redirect()->route('employees.index')
-            ->with('success', 'Employee berhasil diupdate.');
+        try {
+            $employee->update($request->all());
+
+            DB::commit();
+
+            Log::info('Employee updated', ['employee_id' => $employee->employee_id, 'name' => $employee->name]);
+
+            return redirect()->route('employees.container', $employee)->with('success', 'Employee updated successfully.');
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to update employee', ['error' => $e->getMessage(), 'employee_id' => $employee->id]);
+
+            return back()->withErrors(['error' => 'Failed to update employee: ' . $e->getMessage()]);
+        }
     }
 
     /**
-     * Remove the specified employee - IMPROVED VERSION
+     * Remove an employee
      */
     public function destroy(Employee $employee)
     {
-        // Log delete attempt
-        Log::info('Employee delete attempt', [
-            'employee_id' => $employee->id,
-            'employee_name' => $employee->name,
-            'user_id' => Auth::id(),
-            'ip' => request()->ip()
-        ]);
-
         try {
-            // Start database transaction
-            DB::beginTransaction();
+            // Check if employee has certificates
+            $certificateCount = $employee->employeeCertificates()->count();
 
-            // Double-check: Load the employee with training records
-            $employeeWithRecords = Employee::with('trainingRecords')->find($employee->id);
-
-            if (!$employeeWithRecords) {
-                Log::error('Employee not found during delete', ['employee_id' => $employee->id]);
-                return redirect()->route('employees.index')
-                    ->with('error', 'Employee tidak ditemukan.');
+            if ($certificateCount > 0) {
+                return back()->withErrors(['error' => "Cannot delete employee. They have {$certificateCount} certificates associated with them."]);
             }
 
-            // Count training records
-            $trainingRecordsCount = $employeeWithRecords->trainingRecords()->count();
-
-            Log::info('Training records check', [
-                'employee_id' => $employee->id,
-                'training_records_count' => $trainingRecordsCount
-            ]);
-
-            // Check if employee has training records
-            if ($trainingRecordsCount > 0) {
-                Log::warning('Delete blocked - employee has training records', [
-                    'employee_id' => $employee->id,
-                    'training_records_count' => $trainingRecordsCount
-                ]);
-
-                DB::rollback();
-                return redirect()->route('employees.index')
-                    ->with('error', "Tidak dapat menghapus karyawan {$employee->name} karena memiliki {$trainingRecordsCount} training record(s). Hapus training records terlebih dahulu atau non-aktifkan karyawan.");
-            }
-
-            // Perform the delete
-            $employeeName = $employee->name;
             $employeeId = $employee->employee_id;
+            $employeeName = $employee->name;
 
-            $deleted = $employee->delete();
-
-            if (!$deleted) {
-                throw new \Exception('Failed to delete employee from database');
-            }
-
-            // Commit transaction
-            DB::commit();
-
-            Log::info('Employee deleted successfully', [
-                'employee_id' => $employee->id,
-                'employee_name' => $employeeName,
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->route('employees.index')
-                ->with('success', "Karyawan {$employeeName} ({$employeeId}) berhasil dihapus.");
-
-        } catch (\Exception $e) {
-            // Rollback transaction
-            DB::rollback();
-
-            Log::error('Employee delete failed', [
-                'employee_id' => $employee->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-                'user_id' => Auth::id()
-            ]);
-
-            return redirect()->route('employees.index')
-                ->with('error', 'Gagal menghapus karyawan: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * DEBUGGING HELPER METHODS
-     */
-
-    /**
-     * Check employee dependencies (for debugging)
-     */
-    public function checkDependencies(Employee $employee)
-    {
-        $dependencies = [
-            'training_records' => $employee->trainingRecords()->count(),
-            'created_training_records' => $employee->createdTrainingRecords()->count(),
-            // Add more dependency checks here
-        ];
-
-        Log::info('Employee dependencies check', [
-            'employee_id' => $employee->id,
-            'dependencies' => $dependencies
-        ]);
-
-        return response()->json([
-            'employee_id' => $employee->id,
-            'employee_name' => $employee->name,
-            'dependencies' => $dependencies,
-            'can_delete' => array_sum($dependencies) === 0
-        ]);
-    }
-
-    /**
-     * Force delete employee (for admin/debugging only)
-     */
-    public function forceDestroy(Employee $employee)
-    {
-        // Only allow in development environment
-        if (!app()->environment('local')) {
-            abort(403, 'Force delete only available in development');
-        }
-
-        Log::warning('FORCE DELETE initiated', [
-            'employee_id' => $employee->id,
-            'employee_name' => $employee->name,
-            'user_id' => Auth::id()
-        ]);
-
-        try {
-            DB::beginTransaction();
-
-            // Delete all training records first (cascade should handle this, but just in case)
-            $employee->trainingRecords()->delete();
-
-            // Delete employee
             $employee->delete();
 
-            DB::commit();
+            Log::info('Employee deleted', ['employee_id' => $employeeId, 'name' => $employeeName]);
 
-            Log::warning('FORCE DELETE completed', [
-                'employee_id' => $employee->id
-            ]);
-
-            return redirect()->route('employees.index')
-                ->with('success', 'Employee FORCE DELETED successfully (DEV MODE)');
+            return redirect()->route('employees.index')->with('success', 'Employee deleted successfully.');
 
         } catch (\Exception $e) {
-            DB::rollback();
-            Log::error('Force delete failed', [
+            Log::error('Failed to delete employee', ['error' => $e->getMessage(), 'employee_id' => $employee->id]);
+
+            return back()->withErrors(['error' => 'Failed to delete employee: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * NEW: Upload background check files
+     */
+    public function uploadBackgroundCheck(Request $request, Employee $employee)
+    {
+        $request->validate([
+            'files' => 'required|array|min:1|max:10',
+            'files.*' => 'required|file|max:10240|mimes:pdf,jpg,jpeg,png,doc,docx,txt'
+        ]);
+
+        try {
+            $uploadedFiles = $this->fileUploadService->uploadBackgroundCheckFiles(
+                $employee->id,
+                $request->file('files')
+            );
+
+            foreach ($uploadedFiles as $fileData) {
+                $employee->addBackgroundCheckFile($fileData);
+            }
+
+            Log::info('Background check files uploaded', [
+                'employee_id' => $employee->employee_id,
+                'files_count' => count($uploadedFiles)
+            ]);
+
+            return back()->with('success', count($uploadedFiles) . ' background check files uploaded successfully.');
+
+        } catch (\Exception $e) {
+            Log::error('Failed to upload background check files', [
                 'employee_id' => $employee->id,
                 'error' => $e->getMessage()
             ]);
 
-            return redirect()->route('employees.index')
-                ->with('error', 'Force delete failed: ' . $e->getMessage());
+            return back()->withErrors(['error' => 'Failed to upload files: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * NEW: Download background check file
+     */
+    public function downloadBackgroundCheck(Employee $employee, string $fileName)
+    {
+        $files = $employee->background_check_files ?? [];
+        $file = collect($files)->firstWhere('stored_name', $fileName);
+
+        if (!$file) {
+            abort(404, 'File not found');
+        }
+
+        try {
+            return $this->fileUploadService->downloadFile($file['path'], $file['original_name']);
+        } catch (\Exception $e) {
+            Log::error('Failed to download background check file', [
+                'employee_id' => $employee->id,
+                'file' => $fileName,
+                'error' => $e->getMessage()
+            ]);
+
+            abort(404, 'File not found or corrupted');
+        }
+    }
+
+    /**
+     * NEW: Delete background check file
+     */
+    public function deleteBackgroundCheckFile(Request $request, Employee $employee)
+    {
+        $fileName = $request->input('file_name');
+
+        if (!$fileName) {
+            return back()->withErrors(['error' => 'File name is required']);
+        }
+
+        try {
+            $files = $employee->background_check_files ?? [];
+            $file = collect($files)->firstWhere('stored_name', $fileName);
+
+            if (!$file) {
+                return back()->withErrors(['error' => 'File not found']);
+            }
+
+            // Delete file from storage
+            $this->fileUploadService->deleteFile($file['path']);
+
+            // Remove file from employee record
+            $employee->removeBackgroundCheckFile($fileName);
+
+            Log::info('Background check file deleted', [
+                'employee_id' => $employee->employee_id,
+                'file' => $file['original_name']
+            ]);
+
+            return back()->with('success', 'File deleted successfully.');
+
+        } catch (\Exception $e) {
+            Log::error('Failed to delete background check file', [
+                'employee_id' => $employee->id,
+                'file' => $fileName,
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->withErrors(['error' => 'Failed to delete file: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Export employees to Excel
+     */
+    public function export(Request $request)
+    {
+        try {
+            $filters = $request->only(['department', 'status', 'search']);
+
+            return Excel::download(
+                new EmployeesExport($filters),
+                'employees_' . now()->format('Y-m-d') . '.xlsx'
+            );
+
+        } catch (\Exception $e) {
+            Log::error('Failed to export employees', ['error' => $e->getMessage()]);
+
+            return back()->withErrors(['error' => 'Failed to export employees: ' . $e->getMessage()]);
+        }
+    }
+
+    /**
+     * NEW: Get dashboard statistics
+     */
+    protected function getDashboardStats(): array
+    {
+        return [
+            'total_employees' => Employee::count(),
+            'active_employees' => Employee::where('status', 'active')->count(),
+            'total_certificates' => EmployeeCertificate::count(),
+            'active_certificates' => EmployeeCertificate::where('status', 'active')->count(),
+            'expired_certificates' => EmployeeCertificate::where('status', 'expired')->count(),
+            'expiring_soon' => EmployeeCertificate::where('status', 'expiring_soon')->count(),
+            'compliance_rate' => $this->calculateOverallComplianceRate()
+        ];
+    }
+
+    /**
+     * NEW: Calculate overall compliance rate
+     */
+    protected function calculateOverallComplianceRate(): float
+    {
+        $totalCertificates = EmployeeCertificate::count();
+        if ($totalCertificates === 0) {
+            return 100.0;
+        }
+
+        $activeCertificates = EmployeeCertificate::where('status', 'active')->count();
+
+        return round(($activeCertificates / $totalCertificates) * 100, 2);
+    }
+
+    /**
+     * NEW: Get background check status options
+     */
+    protected function getBackgroundCheckStatuses(): array
+    {
+        return [
+            'not_started' => 'Not Started',
+            'in_progress' => 'In Progress',
+            'cleared' => 'Cleared',
+            'pending_review' => 'Pending Review',
+            'requires_follow_up' => 'Requires Follow-up',
+            'expired' => 'Expired',
+            'rejected' => 'Rejected'
+        ];
+    }
+
+    /**
+     * NEW: Bulk update employee statuses
+     */
+    public function bulkUpdate(Request $request)
+    {
+        $request->validate([
+            'employee_ids' => 'required|array|min:1',
+            'employee_ids.*' => 'exists:employees,id',
+            'action' => 'required|in:activate,deactivate,update_department,update_background_check',
+            'department_id' => 'required_if:action,update_department|exists:departments,id',
+            'background_check_status' => 'required_if:action,update_background_check|string'
+        ]);
+
+        try {
+            $employeeIds = $request->employee_ids;
+            $updatedCount = 0;
+
+            switch ($request->action) {
+                case 'activate':
+                    $updatedCount = Employee::whereIn('id', $employeeIds)->update(['status' => 'active']);
+                    break;
+
+                case 'deactivate':
+                    $updatedCount = Employee::whereIn('id', $employeeIds)->update(['status' => 'inactive']);
+                    break;
+
+                case 'update_department':
+                    $updatedCount = Employee::whereIn('id', $employeeIds)
+                                          ->update(['department_id' => $request->department_id]);
+                    break;
+
+                case 'update_background_check':
+                    $updatedCount = Employee::whereIn('id', $employeeIds)
+                                          ->update(['background_check_status' => $request->background_check_status]);
+                    break;
+            }
+
+            Log::info('Bulk employee update', [
+                'action' => $request->action,
+                'employee_count' => count($employeeIds),
+                'updated_count' => $updatedCount
+            ]);
+
+            return back()->with('success', "{$updatedCount} employees updated successfully.");
+
+        } catch (\Exception $e) {
+            Log::error('Bulk employee update failed', [
+                'action' => $request->action,
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->withErrors(['error' => 'Bulk update failed: ' . $e->getMessage()]);
         }
     }
 }
