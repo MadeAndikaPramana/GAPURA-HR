@@ -1,5 +1,5 @@
 <?php
-// routes/web.php (Updated for Employee Container System)
+// routes/web.php (Clean & Working for Phase 1)
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\EmployeesController;
@@ -87,12 +87,7 @@ Route::middleware(['auth'])->group(function () {
 
         // Certificate operations
         Route::post('/{certificate}/renew', [EmployeeCertificatesController::class, 'renew'])->name('renew');
-        Route::post('/{certificate}/extend', [EmployeeCertificatesController::class, 'extend'])->name('extend');
-        Route::post('/{certificate}/revoke', [EmployeeCertificatesController::class, 'revoke'])->name('revoke');
-
-        // Bulk operations
         Route::post('/bulk-update', [EmployeeCertificatesController::class, 'bulkUpdate'])->name('bulk-update');
-        Route::get('/expiring/export', [EmployeeCertificatesController::class, 'exportExpiring'])->name('export-expiring');
     });
 
     // NEW: Certificate Types Management Routes
@@ -105,7 +100,9 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/{certificateType}', [CertificateTypesController::class, 'update'])->name('update');
         Route::delete('/{certificateType}', [CertificateTypesController::class, 'destroy'])->name('destroy');
 
-        // Certificate type statistics
+        // Certificate type operations
+        Route::post('/{certificateType}/toggle-status', [CertificateTypesController::class, 'toggleStatus'])->name('toggle-status');
+        Route::post('/bulk-action', [CertificateTypesController::class, 'bulkAction'])->name('bulk-action');
         Route::get('/{certificateType}/statistics', [CertificateTypesController::class, 'statistics'])->name('statistics');
     });
 
@@ -114,14 +111,25 @@ Route::middleware(['auth'])->group(function () {
          ->where('path', '.*')
          ->name('files.serve');
 
+    // NEW: File management routes
+    Route::prefix('files')->name('files.')->group(function () {
+        Route::get('/download/{path}', [FileController::class, 'download'])->where('path', '.*')->name('download');
+        Route::get('/info/{path}', [FileController::class, 'getFileInfo'])->where('path', '.*')->name('info');
+        Route::get('/exists/{path}', [FileController::class, 'exists'])->where('path', '.*')->name('exists');
+    });
+
     // NEW: API Routes for AJAX calls
     Route::prefix('api')->name('api.')->group(function () {
 
-        // Employee search/autocomplete
-        Route::get('/employees/search', [EmployeesController::class, 'search'])->name('employees.search');
+        // File operations
+        Route::post('/files/upload', [FileController::class, 'upload'])->name('files.upload');
+        Route::delete('/files/delete', [FileController::class, 'delete'])->name('files.delete');
+        Route::get('/files/stats', [FileController::class, 'getStorageStats'])->name('files.stats');
+        Route::post('/files/cleanup', [FileController::class, 'cleanup'])->name('files.cleanup');
 
-        // Certificate validation
-        Route::get('/certificates/validate/{number}', [EmployeeCertificatesController::class, 'validateCertificate'])->name('certificates.validate');
+        // Certificate Types API
+        Route::get('/certificate-types/search', [CertificateTypesController::class, 'apiSearch'])->name('certificate-types.search');
+        Route::get('/certificate-types/categories', [CertificateTypesController::class, 'apiGetCategories'])->name('certificate-types.categories');
 
         // Quick stats for dashboard
         Route::get('/dashboard/stats', function () {
@@ -130,92 +138,36 @@ Route::middleware(['auth'])->group(function () {
                     'total' => \App\Models\Employee::count(),
                     'active' => \App\Models\Employee::where('status', 'active')->count(),
                 ],
-                'certificates' => [
+                'certificates' => class_exists('App\Models\EmployeeCertificate') ? [
                     'total' => \App\Models\EmployeeCertificate::count(),
                     'active' => \App\Models\EmployeeCertificate::where('status', 'active')->count(),
                     'expired' => \App\Models\EmployeeCertificate::where('status', 'expired')->count(),
                     'expiring_soon' => \App\Models\EmployeeCertificate::where('status', 'expiring_soon')->count(),
-                ],
+                ] : ['total' => 0, 'active' => 0, 'expired' => 0, 'expiring_soon' => 0],
                 'departments' => [
                     'total' => \App\Models\Department::count(),
                     'active' => \App\Models\Department::where('is_active', true)->count(),
                 ]
             ]);
         })->name('dashboard.stats');
-
-        // Background check status update
-        Route::patch('/employees/{employee}/background-check-status', function (\App\Models\Employee $employee, \Illuminate\Http\Request $request) {
-            $request->validate(['status' => 'required|string']);
-
-            $employee->update(['background_check_status' => $request->status]);
-
-            return response()->json(['success' => true, 'message' => 'Status updated successfully']);
-        })->name('employees.update-background-check-status');
-    });
-
-    // NEW: Reports and Analytics Routes
-    Route::prefix('reports')->name('reports.')->group(function () {
-
-        // Compliance reports
-        Route::get('/compliance', function () {
-            return Inertia::render('Reports/Compliance', [
-                'stats' => [
-                    'total_employees' => \App\Models\Employee::count(),
-                    'compliant_employees' => \App\Models\Employee::whereDoesntHave('expiredCertificates')->count(),
-                    'departments' => \App\Models\Department::with(['employees' => function($query) {
-                        $query->withCount(['activeCertificates', 'expiredCertificates']);
-                    }])->get()
-                ]
-            ]);
-        })->name('compliance');
-
-        // Certificate expiry report
-        Route::get('/expiry', function () {
-            $expiring = \App\Models\EmployeeCertificate::with(['employee', 'certificateType'])
-                ->whereIn('status', ['expiring_soon', 'expired'])
-                ->orderBy('expiry_date', 'asc')
-                ->get();
-
-            return Inertia::render('Reports/Expiry', [
-                'certificates' => $expiring
-            ]);
-        })->name('expiry');
-
-        // Employee container summary
-        Route::get('/containers', function () {
-            $employees = \App\Models\Employee::with(['department', 'employeeCertificates'])
-                ->get()
-                ->map(function ($employee) {
-                    return $employee->getContainerSummary();
-                });
-
-            return Inertia::render('Reports/Containers', [
-                'employees' => $employees
-            ]);
-        })->name('containers');
     });
 });
 
 /*
 |--------------------------------------------------------------------------
-| LEGACY Routes (Keep for backward compatibility)
+| LEGACY Routes (Keep existing if controllers exist)
 |--------------------------------------------------------------------------
 */
 
-// Keep existing training routes if they exist
-if (class_exists(\App\Http\Controllers\TrainingRecordsController::class)) {
-    Route::middleware(['auth'])->group(function () {
-        Route::resource('training-records', \App\Http\Controllers\TrainingRecordsController::class);
-        Route::resource('training-types', \App\Http\Controllers\TrainingTypesController::class);
-        Route::resource('training-providers', \App\Http\Controllers\TrainingProvidersController::class);
-    });
-}
+// Only include if controllers exist
+$legacyControllers = [
+    'departments' => 'App\Http\Controllers\DepartmentController',
+];
 
-// Keep existing department routes
-if (class_exists(\App\Http\Controllers\DepartmentsController::class)) {
-    Route::middleware(['auth'])->group(function () {
-        Route::resource('departments', \App\Http\Controllers\DepartmentsController::class);
-    });
+foreach ($legacyControllers as $route => $controller) {
+    if (class_exists($controller)) {
+        Route::middleware(['auth'])->resource($route, $controller);
+    }
 }
 
 require __DIR__.'/auth.php';
