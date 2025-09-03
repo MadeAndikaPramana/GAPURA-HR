@@ -1,28 +1,29 @@
 // resources/js/Pages/Employees/Edit.jsx
 
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, useForm } from '@inertiajs/react';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import InputError from '@/Components/InputError';
+import InputLabel from '@/Components/InputLabel';
+import TextInput from '@/Components/TextInput';
+import PrimaryButton from '@/Components/PrimaryButton';
+import SecondaryButton from '@/Components/SecondaryButton';
 import {
     ArrowLeftIcon,
-    UserIcon,
     PencilIcon,
+    IdentificationIcon,
+    UserIcon,
+    BriefcaseIcon,
     BuildingOfficeIcon,
-    DocumentTextIcon,
-    ExclamationTriangleIcon,
-    EyeIcon
+    ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 export default function Edit({ auth, employee, departments }) {
-    const { data, setData, put, processing, errors, isDirty } = useForm({
+    const { data, setData, put, processing, errors } = useForm({
         employee_id: employee.employee_id || '',
         name: employee.name || '',
-        department_id: employee.department_id || '',
         position: employee.position || '',
-        status: employee.status || 'active',
-        hire_date: employee.hire_date || '',
-        background_check_date: employee.background_check_date || '',
-        background_check_status: employee.background_check_status || '',
-        background_check_notes: employee.background_check_notes || '',
+        department_id: employee.department_id || '',
+        status: employee.status || 'active'
     });
 
     const submit = (e) => {
@@ -30,388 +31,234 @@ export default function Edit({ auth, employee, departments }) {
         put(route('employees.update', employee.id));
     };
 
-    const formatDate = (dateString) => {
-        if (!dateString) return '';
-        return new Date(dateString).toISOString().split('T')[0];
-    };
-
-    // Set formatted dates on component mount
-    if (employee.hire_date && !data.hire_date) {
-        setData('hire_date', formatDate(employee.hire_date));
-    }
-    if (employee.background_check_date && !data.background_check_date) {
-        setData('background_check_date', formatDate(employee.background_check_date));
-    }
-
-    const hasChanges = isDirty;
-
     return (
-        <AuthenticatedLayout
-            user={auth.user}
-            header={
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                        <Link
-                            href={route('employees.index')}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                        >
-                            <ArrowLeftIcon className="w-4 h-4 mr-2" />
-                            Back to Employees
-                        </Link>
+        <AuthenticatedLayout user={auth.user}>
+            <Head title={`Edit Karyawan - ${employee.name}`} />
+
+            <div className="py-6">
+                <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* Header */}
+                    <div className="mb-6">
+                        <div className="flex items-center space-x-4 mb-4">
+                            <Link
+                                href={route('employees.index')}
+                                className="btn-secondary"
+                            >
+                                <ArrowLeftIcon className="w-4 h-4 mr-2" />
+                                Kembali
+                            </Link>
+                            <Link
+                                href={route('employees.show', employee.id)}
+                                className="btn-secondary"
+                            >
+                                Lihat Detail
+                            </Link>
+                        </div>
                         <div>
-                            <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                                Edit Karyawan: {employee.name}
-                            </h2>
-                            <p className="text-sm text-gray-600 mt-1">
-                                Update data karyawan {employee.employee_id}
+                            <h1 className="text-2xl font-bold text-slate-900 flex items-center">
+                                <PencilIcon className="w-8 h-8 text-green-600 mr-3" />
+                                Edit Data Karyawan
+                            </h1>
+                            <p className="mt-2 text-sm text-slate-600">
+                                Perbarui informasi karyawan: <strong>{employee.name}</strong>
                             </p>
                         </div>
                     </div>
-                    <div className="flex space-x-2">
-                        <Link
-                            href={route('employees.show', employee.id)}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                        >
-                            <EyeIcon className="w-4 h-4 mr-2" />
-                            View Profile
-                        </Link>
+
+                    {/* Current Data Info */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                        <div className="flex items-start">
+                            <ExclamationTriangleIcon className="w-5 h-5 text-blue-500 mt-0.5 mr-3 flex-shrink-0" />
+                            <div>
+                                <h4 className="text-sm font-medium text-blue-900">Data Saat Ini</h4>
+                                <div className="text-sm text-blue-700 mt-1 space-y-1">
+                                    <p><strong>NIP:</strong> {employee.employee_id}</p>
+                                    <p><strong>Nama:</strong> {employee.name}</p>
+                                    <p><strong>Jabatan:</strong> {employee.position || 'Belum diisi'}</p>
+                                    <p><strong>Departemen:</strong> {employee.department?.name || 'Tidak ada'}</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            }
-        >
-            <Head title={`Edit ${employee.name}`} />
 
-            <div className="py-12">
-                <div className="max-w-4xl mx-auto sm:px-6 lg:px-8">
-                    {/* Unsaved Changes Warning */}
-                    {hasChanges && (
-                        <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
-                            <div className="flex">
-                                <div className="flex-shrink-0">
-                                    <ExclamationTriangleIcon className="h-5 w-5 text-yellow-400" />
-                                </div>
-                                <div className="ml-3">
-                                    <h3 className="text-sm font-medium text-yellow-800">
-                                        You have unsaved changes
-                                    </h3>
-                                    <div className="mt-2 text-sm text-yellow-700">
-                                        <p>Don't forget to save your changes before leaving this page.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <form onSubmit={submit} className="space-y-6">
-                        {/* Basic Information */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg font-medium text-gray-900 flex items-center">
-                                    <UserIcon className="w-5 h-5 mr-2" />
-                                    Informasi Dasar
-                                </h3>
-                                <p className="text-sm text-gray-600 mt-1">
-                                    Data identitas dan informasi dasar karyawan
-                                </p>
-                            </div>
-                            <div className="px-6 py-4 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Employee ID */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Employee ID / NIP *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={data.employee_id}
-                                            onChange={(e) => setData('employee_id', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.employee_id ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
-                                        />
-                                        {errors.employee_id && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.employee_id}</p>
-                                        )}
-                                        <p className="mt-1 text-xs text-gray-500">
-                                            Unique identifier untuk karyawan
-                                        </p>
-                                    </div>
-
-                                    {/* Full Name */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Nama Lengkap *
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={data.name}
-                                            onChange={(e) => setData('name', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.name ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
-                                        />
-                                        {errors.name && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.name}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Department */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Department
-                                        </label>
-                                        <select
-                                            value={data.department_id}
-                                            onChange={(e) => setData('department_id', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.department_id ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        >
-                                            <option value="">Pilih Department</option>
-                                            {departments.map((dept) => (
-                                                <option key={dept.id} value={dept.id}>
-                                                    {dept.name} ({dept.code})
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {errors.department_id && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.department_id}</p>
-                                        )}
-                                        {employee.department && (
-                                            <p className="mt-1 text-xs text-gray-500">
-                                                Current: {employee.department.name}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Position */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Jabatan / Position
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={data.position}
-                                            onChange={(e) => setData('position', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.position ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            placeholder="Manager, Officer, Staff, etc."
-                                        />
-                                        {errors.position && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.position}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Status */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Status *
-                                        </label>
-                                        <select
-                                            value={data.status}
-                                            onChange={(e) => setData('status', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.status ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                            required
-                                        >
-                                            <option value="active">Active</option>
-                                            <option value="inactive">Inactive</option>
-                                        </select>
-                                        {errors.status && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.status}</p>
-                                        )}
-                                        {data.status !== employee.status && (
-                                            <p className="mt-1 text-xs text-blue-600">
-                                                Status will change from {employee.status} to {data.status}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Hire Date */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Tanggal Bergabung
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={data.hire_date}
-                                            onChange={(e) => setData('hire_date', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.hire_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        />
-                                        {errors.hire_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.hire_date}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
+                    {/* Form */}
+                    <div className="card">
+                        <div className="card-header">
+                            <h3 className="text-lg font-medium text-slate-900">
+                                Perbarui Informasi Karyawan
+                            </h3>
+                            <p className="text-sm text-slate-600 mt-1">
+                                Ubah data karyawan sesuai kebutuhan
+                            </p>
                         </div>
 
-                        {/* Background Check Information */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg font-medium text-gray-900 flex items-center">
-                                    <DocumentTextIcon className="w-5 h-5 mr-2" />
-                                    Background Check
-                                </h3>
-                                <p className="text-sm text-gray-600 mt-1">
-                                    Informasi pemeriksaan latar belakang karyawan
-                                </p>
-                            </div>
-                            <div className="px-6 py-4 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {/* Background Check Date */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Tanggal Background Check
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={data.background_check_date}
-                                            onChange={(e) => setData('background_check_date', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.background_check_date ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        />
-                                        {errors.background_check_date && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.background_check_date}</p>
-                                        )}
-                                    </div>
-
-                                    {/* Background Check Status */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                                            Status Background Check
-                                        </label>
-                                        <select
-                                            value={data.background_check_status}
-                                            onChange={(e) => setData('background_check_status', e.target.value)}
-                                            className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                                errors.background_check_status ? 'border-red-300' : 'border-gray-300'
-                                            }`}
-                                        >
-                                            <option value="">Pilih Status</option>
-                                            <option value="pending">Pending</option>
-                                            <option value="in_progress">In Progress</option>
-                                            <option value="completed">Completed</option>
-                                            <option value="cleared">Cleared</option>
-                                            <option value="failed">Failed</option>
-                                        </select>
-                                        {errors.background_check_status && (
-                                            <p className="mt-2 text-sm text-red-600">{errors.background_check_status}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Background Check Notes */}
+                        <form onSubmit={submit} className="card-body space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* NIP */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                                        Catatan Background Check
-                                    </label>
-                                    <textarea
-                                        value={data.background_check_notes}
-                                        onChange={(e) => setData('background_check_notes', e.target.value)}
-                                        rows={4}
-                                        className={`w-full border rounded-md shadow-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                                            errors.background_check_notes ? 'border-red-300' : 'border-gray-300'
-                                        }`}
-                                        placeholder="Catatan tambahan mengenai background check..."
+                                    <InputLabel htmlFor="employee_id" value="NIP" className="flex items-center">
+                                        <IdentificationIcon className="w-4 h-4 mr-2 text-slate-400" />
+                                        Nomor Induk Pegawai (NIP) *
+                                    </InputLabel>
+                                    <TextInput
+                                        id="employee_id"
+                                        name="employee_id"
+                                        value={data.employee_id}
+                                        className="mt-1 block w-full"
+                                        autoComplete="off"
+                                        isFocused={true}
+                                        onChange={(e) => setData('employee_id', e.target.value)}
+                                        placeholder="Contoh: MPGA-001"
                                     />
-                                    {errors.background_check_notes && (
-                                        <p className="mt-2 text-sm text-red-600">{errors.background_check_notes}</p>
-                                    )}
+                                    <InputError message={errors.employee_id} className="mt-2" />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Nomor induk pegawai unik dalam sistem
+                                    </p>
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Employee Statistics */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4 border-b border-gray-200">
-                                <h3 className="text-lg font-medium text-gray-900">
-                                    Employee Statistics
-                                </h3>
-                                <p className="text-sm text-gray-600 mt-1">
-                                    Overview informasi karyawan ini
-                                </p>
-                            </div>
-                            <div className="px-6 py-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <div className="text-center">
-                                        <div className="text-2xl font-bold text-gray-900">
-                                            {employee.training_records_count || 0}
-                                        </div>
-                                        <div className="text-sm text-gray-500">Training Records</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-2xl font-bold text-green-600">
-                                            {employee.created_at ?
-                                                Math.floor((new Date() - new Date(employee.created_at)) / (1000 * 60 * 60 * 24))
-                                                : 0
-                                            }
-                                        </div>
-                                        <div className="text-sm text-gray-500">Days in System</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="text-2xl font-bold text-blue-600">
-                                            {employee.updated_at ?
-                                                Math.floor((new Date() - new Date(employee.updated_at)) / (1000 * 60 * 60 * 24))
-                                                : 0
-                                            }
-                                        </div>
-                                        <div className="text-sm text-gray-500">Days Since Last Update</div>
-                                    </div>
+                                {/* Nama */}
+                                <div>
+                                    <InputLabel htmlFor="name" value="Nama Lengkap" className="flex items-center">
+                                        <UserIcon className="w-4 h-4 mr-2 text-slate-400" />
+                                        Nama Lengkap Karyawan *
+                                    </InputLabel>
+                                    <TextInput
+                                        id="name"
+                                        name="name"
+                                        value={data.name}
+                                        className="mt-1 block w-full"
+                                        autoComplete="name"
+                                        onChange={(e) => setData('name', e.target.value)}
+                                        placeholder="Contoh: Ahmad Suryanto"
+                                    />
+                                    <InputError message={errors.name} className="mt-2" />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Nama lengkap sesuai identitas resmi
+                                    </p>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Form Actions */}
-                        <div className="bg-white shadow rounded-lg">
-                            <div className="px-6 py-4">
-                                <div className="flex items-center justify-between">
-                                    <div className="text-sm text-gray-600">
-                                        * Field yang wajib diisi
-                                    </div>
-                                    <div className="flex space-x-3">
-                                        <Link
-                                            href={route('employees.show', employee.id)}
-                                            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                                        >
-                                            Cancel
-                                        </Link>
-                                        <button
-                                            type="submit"
-                                            disabled={processing || !hasChanges}
-                                            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50"
-                                        >
-                                            {processing ? (
-                                                <>
-                                                    <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                    </svg>
-                                                    Updating...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <PencilIcon className="w-4 h-4 mr-2" />
-                                                    Update Employee
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Jabatan */}
+                                <div>
+                                    <InputLabel htmlFor="position" value="Jabatan" className="flex items-center">
+                                        <BriefcaseIcon className="w-4 h-4 mr-2 text-slate-400" />
+                                        Jabatan *
+                                    </InputLabel>
+                                    <TextInput
+                                        id="position"
+                                        name="position"
+                                        value={data.position}
+                                        className="mt-1 block w-full"
+                                        autoComplete="organization-title"
+                                        onChange={(e) => setData('position', e.target.value)}
+                                        placeholder="Contoh: Manager SDM"
+                                    />
+                                    <InputError message={errors.position} className="mt-2" />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Posisi atau jabatan karyawan
+                                    </p>
+                                </div>
+
+                                {/* Departemen */}
+                                <div>
+                                    <InputLabel htmlFor="department_id" value="Departemen" className="flex items-center">
+                                        <BuildingOfficeIcon className="w-4 h-4 mr-2 text-slate-400" />
+                                        Departemen
+                                    </InputLabel>
+                                    <select
+                                        id="department_id"
+                                        name="department_id"
+                                        value={data.department_id}
+                                        className="form-input mt-1 block w-full"
+                                        onChange={(e) => setData('department_id', e.target.value)}
+                                    >
+                                        <option value="">-- Pilih Departemen --</option>
+                                        {departments?.map((dept) => (
+                                            <option
+                                                key={dept.id}
+                                                value={dept.id}
+                                                selected={dept.id === employee.department_id}
+                                            >
+                                                {dept.name} ({dept.code})
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <InputError message={errors.department_id} className="mt-2" />
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Pilih departemen tempat karyawan bekerja
+                                    </p>
                                 </div>
                             </div>
-                        </div>
-                    </form>
+
+                            {/* Status */}
+                            <div>
+                                <InputLabel htmlFor="status" value="Status Karyawan" />
+                                <div className="mt-2 space-y-3">
+                                    <label className="flex items-center">
+                                        <input
+                                            type="radio"
+                                            name="status"
+                                            value="active"
+                                            checked={data.status === 'active'}
+                                            onChange={(e) => setData('status', e.target.value)}
+                                            className="text-green-600 focus:ring-green-500 border-slate-300"
+                                        />
+                                        <span className="ml-3 flex items-center">
+                                            <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                                            <span className="text-sm text-slate-700">Aktif</span>
+                                        </span>
+                                    </label>
+                                    <label className="flex items-center">
+                                        <input
+                                            type="radio"
+                                            name="status"
+                                            value="inactive"
+                                            checked={data.status === 'inactive'}
+                                            onChange={(e) => setData('status', e.target.value)}
+                                            className="text-red-600 focus:ring-red-500 border-slate-300"
+                                        />
+                                        <span className="ml-3 flex items-center">
+                                            <span className="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                                            <span className="text-sm text-slate-700">Tidak Aktif</span>
+                                        </span>
+                                    </label>
+                                </div>
+                                <InputError message={errors.status} className="mt-2" />
+                            </div>
+
+                            {/* Form Actions */}
+                            <div className="flex items-center justify-between pt-6 border-t border-slate-200">
+                                <div className="text-sm text-slate-600">
+                                    <span className="text-red-500">*</span> Wajib diisi
+                                </div>
+                                <div className="flex items-center space-x-4">
+                                    <Link
+                                        href={route('employees.index')}
+                                        className="btn-secondary"
+                                    >
+                                        Batal
+                                    </Link>
+                                    <PrimaryButton disabled={processing}>
+                                        {processing ? (
+                                            <>
+                                                <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Menyimpan...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <PencilIcon className="w-4 h-4 mr-2" />
+                                                Perbarui Data
+                                            </>
+                                        )}
+                                    </PrimaryButton>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </AuthenticatedLayout>

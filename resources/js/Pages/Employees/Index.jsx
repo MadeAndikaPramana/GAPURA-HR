@@ -1,282 +1,124 @@
 // resources/js/Pages/Employees/Index.jsx
-// PERBAIKAN: Menambahkan fallback untuk stats dan error handling
 
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, router } from '@inertiajs/react';
 import { useState } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import {
     PlusIcon,
     MagnifyingGlassIcon,
     FunnelIcon,
-    ArrowDownTrayIcon,
-    UserIcon,
-    BuildingOfficeIcon,
-    ClipboardDocumentListIcon,
     EyeIcon,
     PencilIcon,
     TrashIcon,
-    CheckCircleIcon,
-    ExclamationTriangleIcon,
-    XCircleIcon
+    UsersIcon,
+    ArrowPathIcon
 } from '@heroicons/react/24/outline';
 
-export default function Index({ auth, employees, departments, filters, stats, flash }) {
-    // PERBAIKAN: Default stats fallback untuk mencegah undefined error
-    const safeStats = stats || {
-        total: 0,
-        active: 0,
-        inactive: 0,
-        by_department: [],
-        departments_count: 0,
-        training_records_count: 0,
-        active_training_records: 0,
-        expired_training_records: 0,
-        expiring_soon_records: 0,
-        compliance_rate: 0
-    };
-
-    const [searchTerm, setSearchTerm] = useState(filters?.search || '');
-    const [selectedDepartment, setSelectedDepartment] = useState(filters?.department || '');
-    const [selectedStatus, setSelectedStatus] = useState(filters?.status || '');
-    const [deleteLoading, setDeleteLoading] = useState(null);
+export default function Index({ auth, employees, departments, filters = {} }) {
+    const [searchTerm, setSearchTerm] = useState(filters.search || '');
+    const [selectedDepartment, setSelectedDepartment] = useState(filters.department || '');
+    const [selectedStatus, setSelectedStatus] = useState(filters.status || '');
 
     const handleSearch = () => {
-        router.get(route('employees.index'), {
-            search: searchTerm,
-            department: selectedDepartment,
-            status: selectedStatus,
-        }, {
+        const params = {
+            search: searchTerm || undefined,
+            department: selectedDepartment || undefined,
+            status: selectedStatus || undefined,
+        };
+
+        // Remove empty params
+        Object.keys(params).forEach(key => {
+            if (!params[key]) delete params[key];
+        });
+
+        router.get(route('employees.index'), params, {
             preserveState: true,
-            replace: true,
+            preserveScroll: true,
         });
     };
 
-    const clearFilters = () => {
+    const resetFilters = () => {
         setSearchTerm('');
         setSelectedDepartment('');
         setSelectedStatus('');
         router.get(route('employees.index'));
     };
 
-    const exportEmployees = () => {
-        const params = new URLSearchParams({
-            search: searchTerm,
-            department: selectedDepartment,
-            status: selectedStatus,
-        });
-
-        window.location.href = route('import-export.employees.export') + '?' + params.toString();
-    };
-
-    // PERBAIKAN: Improved delete function dengan better error handling
-    const deleteEmployee = async (id, employeeName) => {
-        // Debug log
-        console.log('Delete employee clicked:', { id, employeeName });
-
-        // Improved confirmation dialog
-        const confirmMessage = `Apakah Anda yakin ingin menghapus karyawan "${employeeName}"?\n\nTindakan ini tidak dapat dibatalkan.`;
-
-        if (!window.confirm(confirmMessage)) {
-            console.log('Delete cancelled by user');
-            return;
-        }
-
-        try {
-            setDeleteLoading(id);
-            console.log('Sending delete request to:', route('employees.destroy', id));
-
-            // Delete request dengan error handling
-            router.delete(route('employees.destroy', id), {
-                preserveScroll: true,
-                onStart: () => {
-                    console.log('Delete request started');
-                },
-                onSuccess: (page) => {
-                    console.log('Delete successful:', page);
-                    setDeleteLoading(null);
-                },
-                onError: (errors) => {
-                    console.error('Delete failed:', errors);
-                    setDeleteLoading(null);
-
-                    // Show detailed error
-                    const errorMessage = typeof errors === 'object'
-                        ? Object.values(errors).join(', ')
-                        : errors || 'Terjadi kesalahan tidak diketahui';
-
-                    alert(`Gagal menghapus karyawan: ${errorMessage}`);
-                },
-                onFinish: () => {
-                    console.log('Delete request finished');
-                    setDeleteLoading(null);
-                }
-            });
-
-        } catch (error) {
-            console.error('Unexpected error during delete:', error);
-            setDeleteLoading(null);
-            alert('Terjadi kesalahan unexpected. Silakan coba lagi.');
+    const deleteEmployee = (employee) => {
+        if (confirm(`Apakah Anda yakin ingin menghapus data ${employee.name}?`)) {
+            router.delete(route('employees.destroy', employee.id));
         }
     };
 
     const getStatusBadge = (status) => {
-        if (status === 'active') {
-            return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    <CheckCircleIcon className="w-3 h-3 mr-1" />
-                    Active
-                </span>
-            );
-        } else {
-            return (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                    <XCircleIcon className="w-3 h-3 mr-1" />
-                    Inactive
-                </span>
-            );
-        }
-    };
+        const statusConfig = {
+            active: { bg: 'bg-green-100', text: 'text-green-800', label: 'Aktif' },
+            inactive: { bg: 'bg-red-100', text: 'text-red-800', label: 'Tidak Aktif' }
+        };
 
-    const formatDate = (dateString) => {
-        if (!dateString) return 'N/A';
-        return new Date(dateString).toLocaleDateString('id-ID');
+        const config = statusConfig[status] || statusConfig.active;
+
+        return (
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+                {config.label}
+            </span>
+        );
     };
 
     return (
-        <AuthenticatedLayout
-            user={auth.user}
-            header={
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h2 className="font-semibold text-xl text-gray-800 leading-tight">
-                            Data Karyawan
-                        </h2>
-                        <p className="text-sm text-gray-600 mt-1">
-                            Kelola data kepegawaian sistem training GAPURA
-                        </p>
-                    </div>
-                    <div className="flex space-x-2">
-                        <button
-                            onClick={exportEmployees}
-                            className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                        >
-                            <ArrowDownTrayIcon className="w-4 h-4 mr-2" />
-                            Export Data
-                        </button>
-                        <Link
-                            href={route('employees.create')}
-                            className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 focus:bg-green-700 active:bg-green-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                        >
-                            <PlusIcon className="w-4 h-4 mr-2" />
-                            Tambah Karyawan
-                        </Link>
-                    </div>
-                </div>
-            }
-        >
-            <Head title="Data Karyawan" />
+        <AuthenticatedLayout user={auth.user}>
+            <Head title="Data Karyawan SDM" />
 
-            <div className="py-12">
-                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-
-                    {/* Flash Messages */}
-                    {flash?.success && (
-                        <div className="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
-                            <div className="flex">
-                                <CheckCircleIcon className="w-5 h-5 mr-2" />
-                                {flash.success}
+            <div className="py-6">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* Header */}
+                    <div className="mb-6">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h1 className="text-2xl font-bold text-slate-900">Data Karyawan SDM</h1>
+                                <p className="mt-2 text-sm text-slate-600">
+                                    Kelola data karyawan: NIP, Nama, dan Jabatan
+                                </p>
                             </div>
-                        </div>
-                    )}
-
-                    {flash?.error && (
-                        <div className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-                            <div className="flex">
-                                <ExclamationTriangleIcon className="w-5 h-5 mr-2" />
-                                {flash.error}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Statistics Cards - PERBAIKAN: Gunakan safeStats */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                        <div className="bg-green-50 rounded-lg p-6 border border-green-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-green-500 text-white">
-                                    <UserIcon className="w-6 h-6" />
-                                </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-green-600">Total Karyawan</p>
-                                    <p className="text-2xl font-bold text-green-900">{safeStats.total}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-blue-500 text-white">
-                                    <BuildingOfficeIcon className="w-6 h-6" />
-                                </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-blue-600">Departemen</p>
-                                    <p className="text-2xl font-bold text-blue-900">{safeStats.departments_count}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-yellow-50 rounded-lg p-6 border border-yellow-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-yellow-500 text-white">
-                                    <ExclamationTriangleIcon className="w-6 h-6" />
-                                </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-yellow-600">Training Records</p>
-                                    <p className="text-2xl font-bold text-yellow-900">{safeStats.training_records_count}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-purple-50 rounded-lg p-6 border border-purple-200">
-                            <div className="flex items-center">
-                                <div className="p-3 rounded-full bg-purple-500 text-white">
-                                    <ClipboardDocumentListIcon className="w-6 h-6" />
-                                </div>
-                                <div className="ml-4">
-                                    <p className="text-sm font-medium text-purple-600">Compliance Rate</p>
-                                    <p className="text-2xl font-bold text-purple-900">{safeStats.compliance_rate}%</p>
-                                </div>
+                            <div className="mt-4 sm:mt-0">
+                                <Link
+                                    href={route('employees.create')}
+                                    className="btn-primary"
+                                >
+                                    <PlusIcon className="w-4 h-4 mr-2" />
+                                    Tambah Karyawan
+                                </Link>
                             </div>
                         </div>
                     </div>
 
-                    {/* Filters */}
-                    <div className="bg-white shadow rounded-lg mb-6">
-                        <div className="px-6 py-4">
+                    {/* Search and Filters */}
+                    <div className="card mb-6">
+                        <div className="card-body">
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Search
+                                {/* Search */}
+                                <div className="md:col-span-2">
+                                    <label className="form-label">
+                                        <MagnifyingGlassIcon className="w-4 h-4 inline mr-2" />
+                                        Cari Karyawan
                                     </label>
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            placeholder="Cari nama, ID, posisi..."
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
-                                        />
-                                        <MagnifyingGlassIcon className="w-5 h-5 text-gray-400 absolute left-3 top-2.5" />
-                                    </div>
+                                    <input
+                                        type="text"
+                                        className="form-input w-full"
+                                        placeholder="Cari NIK, NIP, nama, atau jabatan..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                                    />
                                 </div>
 
+                                {/* Department Filter */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Departemen
-                                    </label>
+                                    <label className="form-label">Departemen</label>
                                     <select
+                                        className="form-input w-full"
                                         value={selectedDepartment}
                                         onChange={(e) => setSelectedDepartment(e.target.value)}
-                                        className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
                                     >
                                         <option value="">Semua Departemen</option>
                                         {departments?.map((dept) => (
@@ -287,121 +129,122 @@ export default function Index({ auth, employees, departments, filters, stats, fl
                                     </select>
                                 </div>
 
+                                {/* Status Filter */}
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Status
-                                    </label>
+                                    <label className="form-label">Status</label>
                                     <select
+                                        className="form-input w-full"
                                         value={selectedStatus}
                                         onChange={(e) => setSelectedStatus(e.target.value)}
-                                        className="block w-full py-2 px-3 border border-gray-300 bg-white rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-green-500 focus:border-green-500"
                                     >
                                         <option value="">Semua Status</option>
-                                        <option value="active">Active</option>
-                                        <option value="inactive">Inactive</option>
+                                        <option value="active">Aktif</option>
+                                        <option value="inactive">Tidak Aktif</option>
                                     </select>
                                 </div>
+                            </div>
 
-                                <div className="flex items-end space-x-2">
+                            {/* Filter Actions */}
+                            <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
+                                <div className="flex space-x-3">
                                     <button
                                         onClick={handleSearch}
-                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                        className="btn-primary"
                                     >
-                                        <FunnelIcon className="w-4 h-4 inline mr-1" />
+                                        <FunnelIcon className="w-4 h-4 mr-2" />
                                         Filter
                                     </button>
                                     <button
-                                        onClick={clearFilters}
-                                        className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                                        onClick={resetFilters}
+                                        className="btn-secondary"
                                     >
-                                        Clear
+                                        <ArrowPathIcon className="w-4 h-4 mr-2" />
+                                        Reset
                                     </button>
+                                </div>
+                                <div className="text-sm text-slate-600">
+                                    Total: {employees?.total || 0} karyawan
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     {/* Employee Table */}
-                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div className="card">
                         <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            ID Karyawan
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Nama
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Departemen
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Posisi
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Status
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Aksi
-                                        </th>
+                            <table className="table w-full">
+                                <thead>
+                                    <tr className="bg-slate-50 border-b border-slate-200">
+                                        <th className="table-header">NIK</th>
+                                        <th className="table-header">NIP</th>
+                                        <th className="table-header">Nama Karyawan</th>
+                                        <th className="table-header">Jabatan</th>
+                                        <th className="table-header">Departemen</th>
+                                        <th className="table-header">Status</th>
+                                        <th className="table-header">Aksi</th>
                                     </tr>
                                 </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
+                                <tbody className="bg-white divide-y divide-slate-200">
                                     {employees?.data?.length > 0 ? (
                                         employees.data.map((employee) => (
-                                            <tr key={employee.id} className="hover:bg-gray-50">
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                    {employee.employee_id}
+                                            <tr key={employee.id} className="hover:bg-slate-50 transition-colors">
+                                                <td className="table-cell">
+                                                    <span className="font-medium text-slate-900">
+                                                        {employee.nik || '-'}
+                                                    </span>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {employee.name}
+                                                <td className="table-cell">
+                                                    <span className="font-medium text-slate-700">
+                                                        {employee.employee_id}
+                                                    </span>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    {employee.department?.name || 'N/A'}
+                                                <td className="table-cell">
+                                                    <div className="flex items-center">
+                                                        <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center mr-3">
+                                                            <span className="text-white font-medium text-sm">
+                                                                {employee.name.charAt(0).toUpperCase()}
+                                                            </span>
+                                                        </div>
+                                                        <span className="font-medium text-slate-900">
+                                                            {employee.name}
+                                                        </span>
+                                                    </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                    {employee.position || 'N/A'}
+                                                <td className="table-cell">
+                                                    <span className="text-slate-700">
+                                                        {employee.position || '-'}
+                                                    </span>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                <td className="table-cell">
+                                                    <span className="text-slate-600">
+                                                        {employee.department?.name || 'Tidak ada'}
+                                                    </span>
+                                                </td>
+                                                <td className="table-cell">
                                                     {getStatusBadge(employee.status)}
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                    <div className="flex items-center space-x-3">
-                                                        {/* View */}
+                                                <td className="table-cell">
+                                                    <div className="flex items-center space-x-2">
                                                         <Link
                                                             href={route('employees.show', employee.id)}
-                                                            className="text-blue-600 hover:text-blue-900"
-                                                            title="View Details"
+                                                            className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                                                            title="Lihat Detail"
                                                         >
                                                             <EyeIcon className="w-4 h-4" />
                                                         </Link>
-
-                                                        {/* Edit */}
                                                         <Link
                                                             href={route('employees.edit', employee.id)}
-                                                            className="text-indigo-600 hover:text-indigo-900"
+                                                            className="p-1 text-slate-400 hover:text-green-600 transition-colors"
                                                             title="Edit"
                                                         >
                                                             <PencilIcon className="w-4 h-4" />
                                                         </Link>
-
-                                                        {/* Delete Button - Improved */}
                                                         <button
-                                                            onClick={() => deleteEmployee(employee.id, employee.name)}
-                                                            disabled={deleteLoading === employee.id}
-                                                            className={`${
-                                                                deleteLoading === employee.id
-                                                                    ? 'text-gray-400 cursor-not-allowed'
-                                                                    : 'text-red-600 hover:text-red-900'
-                                                            } transition-colors`}
-                                                            title={deleteLoading === employee.id ? 'Deleting...' : 'Delete'}
+                                                            onClick={() => deleteEmployee(employee)}
+                                                            className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                                            title="Hapus"
                                                         >
-                                                            {deleteLoading === employee.id ? (
-                                                                <div className="w-4 h-4 border-2 border-gray-300 border-t-red-600 rounded-full animate-spin"></div>
-                                                            ) : (
-                                                                <TrashIcon className="w-4 h-4" />
-                                                            )}
+                                                            <TrashIcon className="w-4 h-4" />
                                                         </button>
                                                     </div>
                                                 </td>
@@ -409,10 +252,23 @@ export default function Index({ auth, employees, departments, filters, stats, fl
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                                                <UserIcon className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-                                                <p className="text-lg font-medium text-gray-900">Belum ada data karyawan</p>
-                                                <p className="text-sm">Mulai dengan menambahkan karyawan pertama.</p>
+                                            <td colSpan="7" className="table-cell text-center py-12">
+                                                <div className="flex flex-col items-center">
+                                                    <UsersIcon className="w-12 h-12 text-slate-400 mb-4" />
+                                                    <h3 className="text-lg font-medium text-slate-900 mb-2">
+                                                        Belum ada data karyawan
+                                                    </h3>
+                                                    <p className="text-slate-600 mb-4">
+                                                        Mulai dengan menambahkan karyawan baru ke sistem.
+                                                    </p>
+                                                    <Link
+                                                        href={route('employees.create')}
+                                                        className="btn-primary"
+                                                    >
+                                                        <PlusIcon className="w-4 h-4 mr-2" />
+                                                        Tambah Karyawan Pertama
+                                                    </Link>
+                                                </div>
                                             </td>
                                         </tr>
                                     )}
@@ -422,26 +278,12 @@ export default function Index({ auth, employees, departments, filters, stats, fl
 
                         {/* Pagination */}
                         {employees?.links && (
-                            <div className="px-6 py-3 border-t border-gray-200">
+                            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
                                 <div className="flex items-center justify-between">
-                                    <div className="text-sm text-gray-500">
-                                        Showing {employees.from || 0} to {employees.to || 0} of {employees.total || 0} results
+                                    <div className="text-sm text-slate-600">
+                                        Menampilkan {employees.from || 0} - {employees.to || 0} dari {employees.total || 0} karyawan
                                     </div>
-                                    <div className="flex space-x-1">
-                                        {employees.links.map((link, index) => (
-                                            <Link
-                                                key={index}
-                                                href={link.url || '#'}
-                                                className={`px-3 py-1 text-sm rounded-md ${
-                                                    link.active
-                                                        ? 'bg-green-600 text-white'
-                                                        : 'bg-white text-gray-500 border border-gray-300 hover:bg-gray-50'
-                                                }`}
-                                                dangerouslySetInnerHTML={{ __html: link.label }}
-                                                preserveState
-                                            />
-                                        ))}
-                                    </div>
+                                    {/* Pagination links would go here */}
                                 </div>
                             </div>
                         )}
