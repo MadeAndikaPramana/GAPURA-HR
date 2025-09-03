@@ -1,7 +1,7 @@
-// resources/js/Pages/Employees/Index.jsx
+// resources/js/Pages/Employees/Index.jsx - Enhanced with Container View
 
 import { useState } from 'react';
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import {
     PlusIcon,
@@ -10,8 +10,9 @@ import {
     EyeIcon,
     PencilIcon,
     TrashIcon,
-    UsersIcon,
-    ArrowPathIcon
+    FolderIcon,
+    ArrowPathIcon,
+    DocumentTextIcon
 } from '@heroicons/react/24/outline';
 
 export default function Index({ auth, employees, departments, filters = {} }) {
@@ -26,7 +27,6 @@ export default function Index({ auth, employees, departments, filters = {} }) {
             status: selectedStatus || undefined,
         };
 
-        // Remove empty params
         Object.keys(params).forEach(key => {
             if (!params[key]) delete params[key];
         });
@@ -65,58 +65,97 @@ export default function Index({ auth, employees, departments, filters = {} }) {
         );
     };
 
+    // NEW: Get container status summary for employee
+    const getContainerStatus = (employee) => {
+        const stats = employee.certificate_statistics || {};
+        const total = stats.total || 0;
+        const expired = stats.expired || 0;
+        const expiring_soon = stats.expiring_soon || 0;
+
+        if (expired > 0) {
+            return {
+                icon: '🔴',
+                text: `${expired} Expired`,
+                color: 'text-red-600',
+                bg: 'bg-red-50'
+            };
+        }
+
+        if (expiring_soon > 0) {
+            return {
+                icon: '🟡',
+                text: `${expiring_soon} Expiring`,
+                color: 'text-yellow-600',
+                bg: 'bg-yellow-50'
+            };
+        }
+
+        if (total > 0) {
+            return {
+                icon: '🟢',
+                text: `${total} Certificates`,
+                color: 'text-green-600',
+                bg: 'bg-green-50'
+            };
+        }
+
+        return {
+            icon: '📁',
+            text: 'Empty Container',
+            color: 'text-slate-500',
+            bg: 'bg-slate-50'
+        };
+    };
+
     return (
         <AuthenticatedLayout user={auth.user}>
-            <Head title="Data Karyawan SDM" />
+            <Head title="Data Karyawan" />
 
             <div className="py-6">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    {/* Header */}
+                    {/* Header with enhanced title */}
                     <div className="mb-6">
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center justify-between">
                             <div>
-                                <h1 className="text-2xl font-bold text-slate-900">Data Karyawan SDM</h1>
+                                <h1 className="text-2xl font-bold text-slate-900 flex items-center">
+                                    <FolderIcon className="w-8 h-8 text-green-600 mr-3" />
+                                    Employee Containers
+                                </h1>
                                 <p className="mt-2 text-sm text-slate-600">
-                                    Kelola data karyawan: NIP, Nama, dan Jabatan
+                                    Digital employee folders with certificates and background check data
                                 </p>
                             </div>
-                            <div className="mt-4 sm:mt-0">
-                                <Link
-                                    href={route('employees.create')}
-                                    className="btn-primary"
-                                >
-                                    <PlusIcon className="w-4 h-4 mr-2" />
-                                    Tambah Karyawan
-                                </Link>
-                            </div>
+                            <Link
+                                href={route('employees.create')}
+                                className="btn-primary"
+                            >
+                                <PlusIcon className="w-4 h-4 mr-2" />
+                                Tambah Karyawan
+                            </Link>
                         </div>
                     </div>
 
-                    {/* Search and Filters */}
+                    {/* Search and Filter */}
                     <div className="card mb-6">
                         <div className="card-body">
                             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                {/* Search */}
                                 <div className="md:col-span-2">
-                                    <label className="form-label">
-                                        <MagnifyingGlassIcon className="w-4 h-4 inline mr-2" />
-                                        Cari Karyawan
-                                    </label>
-                                    <input
-                                        type="text"
-                                        className="form-input w-full"
-                                        placeholder="Cari NIK, NIP, nama, atau jabatan..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                                    />
+                                    <div className="relative">
+                                        <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            placeholder="Cari karyawan (nama, NIP, jabatan)..."
+                                            className="pl-10 input-field"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                                        />
+                                    </div>
                                 </div>
 
-                                {/* Department Filter */}
                                 <div>
-                                    <label className="form-label">Departemen</label>
                                     <select
-                                        className="form-input w-full"
+                                        className="input-field"
                                         value={selectedDepartment}
                                         onChange={(e) => setSelectedDepartment(e.target.value)}
                                     >
@@ -129,11 +168,9 @@ export default function Index({ auth, employees, departments, filters = {} }) {
                                     </select>
                                 </div>
 
-                                {/* Status Filter */}
                                 <div>
-                                    <label className="form-label">Status</label>
                                     <select
-                                        className="form-input w-full"
+                                        className="input-field"
                                         value={selectedStatus}
                                         onChange={(e) => setSelectedStatus(e.target.value)}
                                     >
@@ -144,9 +181,8 @@ export default function Index({ auth, employees, departments, filters = {} }) {
                                 </div>
                             </div>
 
-                            {/* Filter Actions */}
-                            <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-200">
-                                <div className="flex space-x-3">
+                            <div className="flex items-center justify-between mt-4">
+                                <div className="flex items-center space-x-3">
                                     <button
                                         onClick={handleSearch}
                                         className="btn-primary"
@@ -169,104 +205,123 @@ export default function Index({ auth, employees, departments, filters = {} }) {
                         </div>
                     </div>
 
-                    {/* Employee Table */}
+                    {/* Enhanced Employee Table with Container Status */}
                     <div className="card">
                         <div className="overflow-x-auto">
                             <table className="table w-full">
                                 <thead>
                                     <tr className="bg-slate-50 border-b border-slate-200">
-                                        <th className="table-header">NIK</th>
                                         <th className="table-header">NIP</th>
                                         <th className="table-header">Nama Karyawan</th>
                                         <th className="table-header">Jabatan</th>
                                         <th className="table-header">Departemen</th>
+                                        <th className="table-header">Container Status</th>
                                         <th className="table-header">Status</th>
                                         <th className="table-header">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-slate-200">
                                     {employees?.data?.length > 0 ? (
-                                        employees.data.map((employee) => (
-                                            <tr key={employee.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="table-cell">
-                                                    <span className="font-medium text-slate-900">
-                                                        {employee.nik || '-'}
-                                                    </span>
-                                                </td>
-                                                <td className="table-cell">
-                                                    <span className="font-medium text-slate-700">
-                                                        {employee.employee_id}
-                                                    </span>
-                                                </td>
-                                                <td className="table-cell">
-                                                    <div className="flex items-center">
-                                                        <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center mr-3">
-                                                            <span className="text-white font-medium text-sm">
-                                                                {employee.name.charAt(0).toUpperCase()}
+                                        employees.data.map((employee) => {
+                                            const containerStatus = getContainerStatus(employee);
+
+                                            return (
+                                                <tr key={employee.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="table-cell">
+                                                        <span className="font-medium text-slate-700">
+                                                            {employee.employee_id}
+                                                        </span>
+                                                    </td>
+                                                    <td className="table-cell">
+                                                        <div className="flex items-center">
+                                                            <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center mr-3">
+                                                                <span className="text-white font-medium text-sm">
+                                                                    {employee.name.charAt(0).toUpperCase()}
+                                                                </span>
+                                                            </div>
+                                                            <span className="font-medium text-slate-900">
+                                                                {employee.name}
                                                             </span>
                                                         </div>
-                                                        <span className="font-medium text-slate-900">
-                                                            {employee.name}
+                                                    </td>
+                                                    <td className="table-cell">
+                                                        <span className="text-slate-600">
+                                                            {employee.position || 'Belum diisi'}
                                                         </span>
-                                                    </div>
-                                                </td>
-                                                <td className="table-cell">
-                                                    <span className="text-slate-700">
-                                                        {employee.position || '-'}
-                                                    </span>
-                                                </td>
-                                                <td className="table-cell">
-                                                    <span className="text-slate-600">
-                                                        {employee.department?.name || 'Tidak ada'}
-                                                    </span>
-                                                </td>
-                                                <td className="table-cell">
-                                                    {getStatusBadge(employee.status)}
-                                                </td>
-                                                <td className="table-cell">
-                                                    <div className="flex items-center space-x-2">
-                                                        <Link
-                                                            href={route('employees.show', employee.id)}
-                                                            className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
-                                                            title="Lihat Detail"
-                                                        >
-                                                            <EyeIcon className="w-4 h-4" />
-                                                        </Link>
-                                                        <Link
-                                                            href={route('employees.edit', employee.id)}
-                                                            className="p-1 text-slate-400 hover:text-green-600 transition-colors"
-                                                            title="Edit"
-                                                        >
-                                                            <PencilIcon className="w-4 h-4" />
-                                                        </Link>
-                                                        <button
-                                                            onClick={() => deleteEmployee(employee)}
-                                                            className="p-1 text-slate-400 hover:text-red-600 transition-colors"
-                                                            title="Hapus"
-                                                        >
-                                                            <TrashIcon className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        ))
+                                                    </td>
+                                                    <td className="table-cell">
+                                                        <span className="text-slate-600">
+                                                            {employee.department?.name || 'Tidak ada'}
+                                                        </span>
+                                                    </td>
+                                                    {/* NEW: Container Status Column */}
+                                                    <td className="table-cell">
+                                                        <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${containerStatus.bg} ${containerStatus.color}`}>
+                                                            <span className="mr-1">{containerStatus.icon}</span>
+                                                            {containerStatus.text}
+                                                        </div>
+                                                    </td>
+                                                    <td className="table-cell">
+                                                        {getStatusBadge(employee.status)}
+                                                    </td>
+                                                    <td className="table-cell">
+                                                        <div className="flex items-center space-x-2">
+                                                            {/* NEW: Container View Button (Primary Action) */}
+                                                            <Link
+                                                                href={route('employees.container', employee.id)}
+                                                                className="btn-xs btn-primary"
+                                                                title="View Employee Container"
+                                                            >
+                                                                <FolderIcon className="w-4 h-4 mr-1" />
+                                                                Container
+                                                            </Link>
+
+                                                            {/* Traditional actions moved to secondary */}
+                                                            <div className="flex items-center space-x-1">
+                                                                <Link
+                                                                    href={route('employees.show', employee.id)}
+                                                                    className="btn-xs btn-secondary"
+                                                                    title="View Details"
+                                                                >
+                                                                    <EyeIcon className="w-4 h-4" />
+                                                                </Link>
+                                                                <Link
+                                                                    href={route('employees.edit', employee.id)}
+                                                                    className="btn-xs btn-secondary"
+                                                                    title="Edit"
+                                                                >
+                                                                    <PencilIcon className="w-4 h-4" />
+                                                                </Link>
+                                                                <button
+                                                                    onClick={() => deleteEmployee(employee)}
+                                                                    className="btn-xs btn-danger"
+                                                                    title="Delete"
+                                                                >
+                                                                    <TrashIcon className="w-4 h-4" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })
                                     ) : (
                                         <tr>
-                                            <td colSpan="7" className="table-cell text-center py-12">
+                                            <td colSpan="7" className="table-cell text-center py-8">
                                                 <div className="flex flex-col items-center">
-                                                    <UsersIcon className="w-12 h-12 text-slate-400 mb-4" />
+                                                    <FolderIcon className="w-16 h-16 text-slate-300 mb-4" />
                                                     <h3 className="text-lg font-medium text-slate-900 mb-2">
-                                                        Belum ada data karyawan
+                                                        Tidak ada data karyawan
                                                     </h3>
-                                                    <p className="text-slate-600 mb-4">
-                                                        Mulai dengan menambahkan karyawan baru ke sistem.
+                                                    <p className="text-slate-500 mb-4">
+                                                        Mulai dengan menambahkan karyawan pertama atau ubah filter pencarian.
                                                     </p>
                                                     <Link
                                                         href={route('employees.create')}
                                                         className="btn-primary"
                                                     >
                                                         <PlusIcon className="w-4 h-4 mr-2" />
-                                                        Tambah Karyawan Pertama
+                                                        Tambah Karyawan
                                                     </Link>
                                                 </div>
                                             </td>
@@ -278,15 +333,51 @@ export default function Index({ auth, employees, departments, filters = {} }) {
 
                         {/* Pagination */}
                         {employees?.links && (
-                            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
+                            <div className="px-6 py-4 border-t border-slate-200">
                                 <div className="flex items-center justify-between">
-                                    <div className="text-sm text-slate-600">
-                                        Menampilkan {employees.from || 0} - {employees.to || 0} dari {employees.total || 0} karyawan
+                                    <div className="text-sm text-slate-700">
+                                        Menampilkan {employees.from || 0} sampai {employees.to || 0} dari {employees.total || 0} hasil
                                     </div>
                                     {/* Pagination links would go here */}
                                 </div>
                             </div>
                         )}
+                    </div>
+
+                    {/* Container System Info Card */}
+                    <div className="mt-6 bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-6">
+                        <div className="flex items-start">
+                            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+                                <FolderIcon className="w-6 h-6 text-green-600" />
+                            </div>
+                            <div className="flex-1">
+                                <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                                    🗂️ Employee Container System
+                                </h3>
+                                <p className="text-slate-700 mb-3">
+                                    Setiap karyawan memiliki digital folder yang berisi certificate dan background check data.
+                                    Click <strong>"Container"</strong> untuk melihat semua dokumen dalam satu tempat yang terorganisir.
+                                </p>
+                                <div className="flex items-center space-x-6 text-sm">
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                                        <span className="text-slate-600">Active Certificates</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
+                                        <span className="text-slate-600">Expiring Soon</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                                        <span className="text-slate-600">Expired</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-slate-400 rounded-full mr-2"></span>
+                                        <span className="text-slate-600">Empty Container</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

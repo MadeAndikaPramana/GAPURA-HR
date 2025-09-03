@@ -113,23 +113,6 @@ export default function Show({ auth, employee }) {
                                 </div>
                                 <div className="card-body">
                                     <dl className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        {/* NIK */}
-                                        <div>
-                                            <dt className="text-sm font-medium text-slate-500 flex items-center mb-2">
-                                                <IdentificationIcon className="w-4 h-4 mr-2" />
-                                                NIK (Nomor Induk Kependudukan)
-                                            </dt>
-                                            <dd className="text-sm text-slate-900">
-                                                {employee.nik ? (
-                                                    <span className="font-mono bg-slate-100 px-2 py-1 rounded">
-                                                        {employee.nik}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400 italic">Belum diisi</span>
-                                                )}
-                                            </dd>
-                                        </div>
-
                                         {/* NIP */}
                                         <div>
                                             <dt className="text-sm font-medium text-slate-500 flex items-center mb-2">
