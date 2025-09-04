@@ -1,4 +1,45 @@
 <?php
+// app/Models/CertificateType.php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class CertificateType extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'name',
+        'code',
+        'description',
+        'typical_validity_months',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    /**
+     * Get the employee certificates for this type
+     */
+    public function employeeCertificates()
+    {
+        return $this->hasMany(EmployeeCertificate::class);
+    }
+
+    /**
+     * Scope for active certificate types
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
+    }
+}
+
+// app/Models/EmployeeCertificate.php
 
 namespace App\Models;
 
@@ -190,5 +231,44 @@ class EmployeeCertificate extends Model
     public function getFilesCountAttribute()
     {
         return count($this->files ?? []);
+    }
+}
+
+// app/Models/Department.php (if not exists)
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Department extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'name',
+        'code',
+        'description',
+        'is_active',
+    ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    /**
+     * Get the employees for this department
+     */
+    public function employees()
+    {
+        return $this->hasMany(Employee::class);
+    }
+
+    /**
+     * Scope for active departments
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }

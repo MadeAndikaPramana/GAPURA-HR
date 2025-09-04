@@ -1,58 +1,125 @@
 <?php
-// app/Http/Controllers/EmployeeController.php
+// app/Http/Controllers/EmployeeController.php - Simple Show Method
 
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
-use App\Models\Department;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
 class EmployeeController extends Controller
 {
     /**
-     * Display a listing of employees with search and filters
+     * Display the specified employee
+     *
+     * @param Employee $employee
+     * @return \Inertia\Response
+     */
+    public function show(Employee $employee)
+    {
+        try {
+            // Load basic relationships if they exist
+            $relations = ['department'];
+
+            // Only load relationships that exist
+            if (method_exists($employee, 'employeeCertificates')) {
+                $relations[] = 'employeeCertificates';
+            }
+
+            $employee->load($relations);
+
+            return Inertia::render('Employees/Show', [
+                'employee' => [
+                    'id' => $employee->id,
+                    'name' => $employee->name,
+                    'nip' => $employee->nip ?? $employee->employee_id,
+                    'position' => $employee->position,
+                    'status' => $employee->status ?? 'active',
+                    'hire_date' => $employee->hire_date?->format('Y-m-d'),
+                    'department' => $employee->department ? [
+                        'id' => $employee->department->id,
+                        'name' => $employee->department->name,
+                        'code' => $employee->department->code ?? null,
+                    ] : null,
+                    'certificates_count' => $employee->employeeCertificates?->count() ?? 0,
+                    'background_check_status' => $employee->background_check_status ?? 'not_started',
+                    'background_check_date' => $employee->background_check_date?->format('Y-m-d'),
+                    'created_at' => $employee->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $employee->updated_at->format('Y-m-d H:i:s'),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            // Fallback untuk debugging
+            return Inertia::render('Employees/Show', [
+                'employee' => [
+                    'id' => $employee->id,
+                    'name' => $employee->name ?? 'Unknown',
+                    'nip' => $employee->nip ?? $employee->employee_id ?? 'N/A',
+                    'position' => $employee->position ?? 'Unknown',
+                    'status' => $employee->status ?? 'active',
+                    'hire_date' => null,
+                    'department' => null,
+                    'certificates_count' => 0,
+                    'background_check_status' => 'not_started',
+                    'background_check_date' => null,
+                    'created_at' => $employee->created_at->format('Y-m-d H:i:s'),
+                    'updated_at' => $employee->updated_at->format('Y-m-d H:i:s'),
+                ],
+                'error' => 'Some data could not be loaded: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Display a listing of employees
      */
     public function index(Request $request)
     {
-        $query = Employee::with(['department']);
+        try {
+            $query = Employee::query();
 
-        // Search functionality - NIP, Name, Position
-        if ($request->filled('search')) {
-            $query->search($request->search);
+            // Add search if provided
+            if ($request->filled('search')) {
+                $search = $request->get('search');
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'LIKE', "%{$search}%")
+                      ->orWhere('nip', 'LIKE', "%{$search}%")
+                      ->orWhere('employee_id', 'LIKE', "%{$search}%");
+                });
+            }
+
+            // Add status filter if provided
+            if ($request->filled('status')) {
+                $query->where('status', $request->get('status'));
+            }
+
+            // Load relationships if they exist
+            $relations = [];
+            if (method_exists(Employee::class, 'department')) {
+                $relations[] = 'department';
+            }
+
+            if (!empty($relations)) {
+                $query->with($relations);
+            }
+
+            $employees = $query->latest()->paginate(15);
+
+            return Inertia::render('Employees/Index', [
+                'employees' => $employees,
+                'filters' => $request->only(['search', 'status']),
+                'departments' => $this->getDepartments(),
+            ]);
+
+        } catch (\Exception $e) {
+            return Inertia::render('Employees/Index', [
+                'employees' => ['data' => [], 'total' => 0],
+                'filters' => [],
+                'departments' => [],
+                'error' => 'Could not load employees: ' . $e->getMessage()
+            ]);
         }
-
-        // Department filter
-        if ($request->filled('department')) {
-            $query->where('department_id', $request->department);
-        }
-
-        // Status filter
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        // Order by name for better UX
-        $query->orderBy('name', 'asc');
-
-        $employees = $query->paginate(15)->appends($request->all());
-
-        // Get departments for filter dropdown
-        $departments = Department::select('id', 'name', 'code')
-                                ->orderBy('name')
-                                ->get();
-
-        return Inertia::render('Employees/Index', [
-            'employees' => $employees,
-            'departments' => $departments,
-            'filters' => [
-                'search' => $request->search,
-                'department' => $request->department,
-                'status' => $request->status,
-            ],
-        ]);
     }
 
     /**
@@ -60,295 +127,228 @@ class EmployeeController extends Controller
      */
     public function create()
     {
-        $departments = Department::select('id', 'name', 'code')
-                                ->orderBy('name')
-                                ->get();
-
         return Inertia::render('Employees/Create', [
-            'departments' => $departments,
+            'departments' => $this->getDepartments(),
         ]);
     }
 
     /**
-     * Store a newly created employee in storage
+     * Store a newly created employee
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'employee_id' => [
-                'required',
-                'string',
-                'max:20',
-                Rule::unique('employees', 'employee_id'),
-            ],
+        $request->validate([
             'name' => 'required|string|max:255',
-            'position' => 'required|string|max:100',
+            'nip' => 'nullable|string|unique:employees,nip',
+            'employee_id' => 'nullable|string|unique:employees,employee_id',
+            'position' => 'nullable|string|max:255',
             'department_id' => 'nullable|exists:departments,id',
-            'status' => 'required|in:active,inactive',
-        ], [
-            'employee_id.required' => 'NIP wajib diisi',
-            'employee_id.unique' => 'NIP sudah terdaftar dalam sistem',
-            'employee_id.max' => 'NIP maksimal 20 karakter',
-            'name.required' => 'Nama karyawan wajib diisi',
-            'name.max' => 'Nama maksimal 255 karakter',
-            'position.required' => 'Jabatan wajib diisi',
-            'position.max' => 'Jabatan maksimal 100 karakter',
-            'department_id.exists' => 'Departemen tidak valid',
-            'status.required' => 'Status karyawan wajib dipilih',
-            'status.in' => 'Status harus Aktif atau Tidak Aktif',
+            'status' => 'nullable|in:active,inactive',
         ]);
 
         try {
-            $employee = Employee::create($validated);
+            $employee = Employee::create([
+                'name' => $request->name,
+                'nip' => $request->nip ?? $request->employee_id,
+                'employee_id' => $request->employee_id ?? $request->nip,
+                'position' => $request->position,
+                'department_id' => $request->department_id,
+                'status' => $request->status ?? 'active',
+                'hire_date' => $request->hire_date ? now()->parse($request->hire_date) : now(),
+            ]);
 
-            return redirect()
-                ->route('employees.show', $employee->id)
-                ->with('success', 'Data karyawan berhasil ditambahkan');
+            return redirect()->route('employees.show', $employee)
+                           ->with('success', 'Employee created successfully.');
+
         } catch (\Exception $e) {
-            return redirect()
-                ->back()
-                ->withInput()
-                ->with('error', 'Gagal menambahkan data karyawan: ' . $e->getMessage());
+            return back()->withInput()->withErrors([
+                'error' => 'Could not create employee: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Display the specified employee
-     */
-    public function show(Employee $employee)
-    {
-        $employee->load(['department']);
-
-        return Inertia::render('Employees/Show', [
-            'employee' => $employee,
-        ]);
-    }
-
-    /**
-     * Show the form for editing the specified employee
+     * Show the form for editing the employee
      */
     public function edit(Employee $employee)
     {
-        $employee->load(['department']);
-
-        $departments = Department::select('id', 'name', 'code')
-                                ->orderBy('name')
-                                ->get();
-
         return Inertia::render('Employees/Edit', [
             'employee' => $employee,
-            'departments' => $departments,
+            'departments' => $this->getDepartments(),
         ]);
     }
 
     /**
-     * Update the specified employee in storage
+     * Update the specified employee
      */
     public function update(Request $request, Employee $employee)
     {
-        $validated = $request->validate([
-            'employee_id' => [
-                'required',
-                'string',
-                'max:20',
-                Rule::unique('employees', 'employee_id')->ignore($employee->id),
-            ],
+        $request->validate([
             'name' => 'required|string|max:255',
-            'position' => 'required|string|max:100',
+            'nip' => 'nullable|string|unique:employees,nip,' . $employee->id,
+            'employee_id' => 'nullable|string|unique:employees,employee_id,' . $employee->id,
+            'position' => 'nullable|string|max:255',
             'department_id' => 'nullable|exists:departments,id',
-            'status' => 'required|in:active,inactive',
-        ], [
-            'employee_id.required' => 'NIP wajib diisi',
-            'employee_id.unique' => 'NIP sudah terdaftar dalam sistem',
-            'employee_id.max' => 'NIP maksimal 20 karakter',
-            'name.required' => 'Nama karyawan wajib diisi',
-            'name.max' => 'Nama maksimal 255 karakter',
-            'position.required' => 'Jabatan wajib diisi',
-            'position.max' => 'Jabatan maksimal 100 karakter',
-            'department_id.exists' => 'Departemen tidak valid',
-            'status.required' => 'Status karyawan wajib dipilih',
-            'status.in' => 'Status harus Aktif atau Tidak Aktif',
+            'status' => 'nullable|in:active,inactive',
         ]);
 
         try {
-            $employee->update($validated);
+            $employee->update([
+                'name' => $request->name,
+                'nip' => $request->nip ?? $request->employee_id,
+                'employee_id' => $request->employee_id ?? $request->nip,
+                'position' => $request->position,
+                'department_id' => $request->department_id,
+                'status' => $request->status ?? 'active',
+            ]);
 
-            return redirect()
-                ->route('employees.show', $employee->id)
-                ->with('success', 'Data karyawan berhasil diperbarui');
+            return redirect()->route('employees.show', $employee)
+                           ->with('success', 'Employee updated successfully.');
+
         } catch (\Exception $e) {
-            return redirect()
-                ->back()
-                ->withInput()
-                ->with('error', 'Gagal memperbarui data karyawan: ' . $e->getMessage());
+            return back()->withInput()->withErrors([
+                'error' => 'Could not update employee: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Remove the specified employee from storage
+     * Remove the specified employee
      */
     public function destroy(Employee $employee)
     {
         try {
-            $employeeName = $employee->name;
             $employee->delete();
 
-            return redirect()
-                ->route('employees.index')
-                ->with('success', "Data karyawan {$employeeName} berhasil dihapus");
+            return redirect()->route('employees.index')
+                           ->with('success', 'Employee deleted successfully.');
+
         } catch (\Exception $e) {
-            return redirect()
-                ->back()
-                ->with('error', 'Gagal menghapus data karyawan: ' . $e->getMessage());
+            return back()->withErrors([
+                'error' => 'Could not delete employee: ' . $e->getMessage()
+            ]);
         }
     }
 
     /**
-     * Get employee statistics for dashboard
-     */
-    public function getStatistics()
-    {
-        $stats = [
-            'total' => Employee::count(),
-            'active' => Employee::where('status', 'active')->count(),
-            'inactive' => Employee::where('status', 'inactive')->count(),
-            'complete_data' => Employee::whereNotNull('position')
-                                     ->whereNotNull('department_id')
-                                     ->count(),
-        ];
-
-        $stats['completion_rate'] = $stats['total'] > 0
-            ? round(($stats['complete_data'] / $stats['total']) * 100, 1)
-            : 0;
-
-        return response()->json($stats);
-    }
-
-    /**
-     * Export employees data
-     */
-    public function export(Request $request)
-    {
-        $query = Employee::with(['department']);
-
-        // Apply same filters as index
-        if ($request->filled('search')) {
-            $query->search($request->search);
-        }
-
-        if ($request->filled('department')) {
-            $query->where('department_id', $request->department);
-        }
-
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        $employees = $query->orderBy('name', 'asc')->get();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Export berhasil',
-            'data' => $employees->map(function ($employee) {
-                return [
-                    'NIP' => $employee->employee_id,
-                    'Nama' => $employee->name,
-                    'Jabatan' => $employee->position ?? '',
-                    'Departemen' => $employee->department?->name ?? '',
-                    'Status' => $employee->status === 'active' ? 'Aktif' : 'Tidak Aktif',
-                    'Data Lengkap' => (!empty($employee->position) && !empty($employee->department_id)) ? 'Ya' : 'Tidak',
-                    'Dibuat' => $employee->created_at?->format('d/m/Y H:i'),
-                    'Diupdate' => $employee->updated_at?->format('d/m/Y H:i'),
-                ];
-            }),
-            'total' => $employees->count(),
-            'exported_at' => now()->format('d/m/Y H:i:s'),
-        ]);
-    }
-
-    /**
-     * Search employees for autocomplete/API
-     */
-    public function search(Request $request)
-    {
-        $request->validate([
-            'q' => 'required|string|min:2|max:255',
-            'limit' => 'integer|min:1|max:50',
-        ]);
-
-        $searchTerm = $request->get('q');
-        $limit = $request->get('limit', 10);
-
-        $employees = Employee::search($searchTerm)
-                            ->with(['department'])
-                            ->limit($limit)
-                            ->get()
-                            ->map(function ($employee) {
-                                return [
-                                    'id' => $employee->id,
-                                    'text' => $employee->name,
-                                    'subtitle' => $employee->employee_id . ($employee->position ? " - {$employee->position}" : ''),
-                                    'department' => $employee->department?->name ?? '',
-                                    'status' => $employee->status,
-                                ];
-                            });
-
-        return response()->json([
-            'success' => true,
-            'data' => $employees,
-            'total' => $employees->count(),
-        ]);
-    }
-
-    /**
-     * Bulk operations on employees
+     * Handle bulk actions
      */
     public function bulkAction(Request $request)
     {
         $request->validate([
-            'action' => 'required|in:activate,deactivate,delete',
-            'employee_ids' => 'required|array|min:1',
+            'action' => 'required|in:delete,activate,deactivate',
+            'employee_ids' => 'required|array',
             'employee_ids.*' => 'exists:employees,id',
         ]);
 
-        $action = $request->get('action');
-        $employeeIds = $request->get('employee_ids');
-
         try {
-            DB::beginTransaction();
+            $employees = Employee::whereIn('id', $request->employee_ids);
 
-            switch ($action) {
-                case 'activate':
-                    Employee::whereIn('id', $employeeIds)->update(['status' => 'active']);
-                    $message = 'Karyawan berhasil diaktifkan';
-                    break;
-
-                case 'deactivate':
-                    Employee::whereIn('id', $employeeIds)->update(['status' => 'inactive']);
-                    $message = 'Karyawan berhasil dinonaktifkan';
-                    break;
-
+            switch ($request->action) {
                 case 'delete':
-                    Employee::whereIn('id', $employeeIds)->delete();
-                    $message = 'Karyawan berhasil dihapus';
+                    $employees->delete();
+                    $message = 'Selected employees deleted successfully.';
                     break;
-
-                default:
-                    throw new \InvalidArgumentException('Action tidak valid');
+                case 'activate':
+                    $employees->update(['status' => 'active']);
+                    $message = 'Selected employees activated successfully.';
+                    break;
+                case 'deactivate':
+                    $employees->update(['status' => 'inactive']);
+                    $message = 'Selected employees deactivated successfully.';
+                    break;
             }
 
-            DB::commit();
-
-            return redirect()
-                ->route('employees.index')
-                ->with('success', $message . ' (' . count($employeeIds) . ' karyawan)');
+            return back()->with('success', $message);
 
         } catch (\Exception $e) {
-            DB::rollback();
+            return back()->withErrors([
+                'error' => 'Could not perform bulk action: ' . $e->getMessage()
+            ]);
+        }
+    }
 
-            return redirect()
-                ->back()
-                ->with('error', 'Gagal melakukan bulk action: ' . $e->getMessage());
+    /**
+     * Export employees to Excel
+     */
+    public function export(Request $request)
+    {
+        try {
+            // Simple CSV export
+            $employees = Employee::all();
+
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="employees_' . date('Y-m-d') . '.csv"',
+            ];
+
+            $callback = function() use ($employees) {
+                $handle = fopen('php://output', 'w');
+                fputcsv($handle, ['ID', 'Name', 'NIP', 'Position', 'Status', 'Created At']);
+
+                foreach ($employees as $employee) {
+                    fputcsv($handle, [
+                        $employee->id,
+                        $employee->name,
+                        $employee->nip ?? $employee->employee_id,
+                        $employee->position,
+                        $employee->status,
+                        $employee->created_at->format('Y-m-d H:i:s'),
+                    ]);
+                }
+
+                fclose($handle);
+            };
+
+            return response()->stream($callback, 200, $headers);
+
+        } catch (\Exception $e) {
+            return back()->withErrors([
+                'error' => 'Could not export employees: ' . $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Search employees
+     */
+    public function search(Request $request)
+    {
+        try {
+            $query = $request->get('q', '');
+
+            if (empty($query)) {
+                return response()->json([]);
+            }
+
+            $employees = Employee::where(function ($q) use ($query) {
+                $q->where('name', 'LIKE', "%{$query}%")
+                  ->orWhere('nip', 'LIKE', "%{$query}%")
+                  ->orWhere('employee_id', 'LIKE', "%{$query}%");
+            })
+            ->select(['id', 'name', 'nip', 'employee_id', 'position'])
+            ->limit(10)
+            ->get();
+
+            return response()->json($employees);
+
+        } catch (\Exception $e) {
+            return response()->json([]);
+        }
+    }
+
+    /**
+     * Get departments for dropdowns
+     */
+    private function getDepartments()
+    {
+        try {
+            if (class_exists('App\Models\Department')) {
+                return \App\Models\Department::orderBy('name')->get(['id', 'name', 'code']);
+            }
+            return [];
+        } catch (\Exception $e) {
+            return [];
         }
     }
 }

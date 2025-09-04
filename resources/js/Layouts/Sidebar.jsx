@@ -1,55 +1,17 @@
-// resources/js/Layouts/Sidebar.jsx
+// resources/js/Layouts/Sidebar.jsx - Fixed Navigation Active State
 
-import { Link, usePage, router } from '@inertiajs/react';
-import ApplicationLogo from '@/Components/ApplicationLogo';
+import { Link, usePage } from '@inertiajs/react';
 import {
     HomeIcon,
-    UsersIcon,
-    DocumentTextIcon,
-    AcademicCapIcon,
-    ClipboardDocumentListIcon,
-    ChartBarIcon,
-    CogIcon,
-    ArrowLeftOnRectangleIcon,
     FolderIcon,
-    DocumentIcon,
+    UsersIcon,
+    ClipboardDocumentListIcon,
+    AcademicCapIcon,
+    DocumentTextIcon,
+    ArrowDownTrayIcon,
+    Cog6ToothIcon,
+    ChartBarIcon
 } from '@heroicons/react/24/outline';
-
-const navigationSections = [
-    {
-        title: 'MAIN',
-        items: [
-            { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-        ]
-    },
-    {
-        title: 'DATA MANAGEMENT',
-        items: [
-            { name: 'Employee Containers', href: '/employees', icon: UsersIcon },
-            { name: 'Data Karyawan', href: '/employees', icon: FolderIcon },
-        ]
-    },
-    {
-        title: 'TRAINING & CERTIFICATES',
-        items: [
-            { name: 'Training Records', href: '/employee-certificates', icon: AcademicCapIcon },
-            { name: 'Certificate Types', href: '/certificate-types', icon: ClipboardDocumentListIcon },
-        ]
-    },
-    {
-        title: 'REPORTS & ANALYTICS',
-        items: [
-            { name: 'Reports', href: '/reports', icon: ChartBarIcon },
-            { name: 'Import/Export', href: '/import-export', icon: DocumentIcon },
-        ]
-    },
-    {
-        title: 'SYSTEM',
-        items: [
-            { name: 'Configuration', href: '/settings', icon: CogIcon },
-        ]
-    }
-];
 
 function classNames(...classes) {
     return classes.filter(Boolean).join(' ');
@@ -58,20 +20,113 @@ function classNames(...classes) {
 export default function Sidebar({ user, mobile = false }) {
     const { url } = usePage();
 
-    const logout = (e) => {
-        e.preventDefault();
-        router.post('/logout');
+    // ✅ FIXED: More specific URL matching to prevent overlapping
+    const isCurrentPage = (path, exact = false) => {
+        if (exact) {
+            return url === path || url === `${path}/`;
+        }
+
+        // Special handling for specific routes to avoid overlap
+        if (path === '/employees' && url.includes('/employee-containers')) {
+            return false; // Don't activate "Data Karyawan" when in "Employee Containers"
+        }
+
+        return url.startsWith(path);
     };
 
+    // ✅ NAVIGATION STRUCTURE - Clear separation
+    const navigationSections = [
+        {
+            title: 'MAIN',
+            items: [
+                {
+                    name: 'Dashboard',
+                    href: '/dashboard',
+                    icon: HomeIcon,
+                    current: isCurrentPage('/dashboard', true)
+                }
+            ]
+        },
+        {
+            title: 'DATA MANAGEMENT',
+            items: [
+                {
+                    name: 'Container Data',
+                    href: '/employees',
+                    icon: FolderIcon,
+                    description: 'Digital employee folders',
+                    current: isCurrentPage('/employees')
+                },
+                {
+                    name: 'SDM',
+                    href: '/sdm',
+                    icon: UsersIcon,
+                    description: 'Traditional employee CRUD',
+                    current: isCurrentPage('/sdm')
+                }
+            ]
+        },
+        {
+            title: 'TRAINING & CERTIFICATES',
+            items: [
+                {
+                    name: 'Training Records',
+                    href: '/employee-certificates',
+                    icon: ClipboardDocumentListIcon,
+                    current: isCurrentPage('/employee-certificates')
+                },
+                {
+                    name: 'Certificate Types',
+                    href: '/certificate-types',
+                    icon: AcademicCapIcon,
+                    current: isCurrentPage('/certificate-types')
+                }
+            ]
+        },
+        {
+            title: 'REPORTS & ANALYTICS',
+            items: [
+                {
+                    name: 'Reports',
+                    href: '/reports',
+                    icon: ChartBarIcon,
+                    current: isCurrentPage('/reports')
+                },
+                {
+                    name: 'Import/Export',
+                    href: '/import-export',
+                    icon: ArrowDownTrayIcon,
+                    current: isCurrentPage('/import-export')
+                }
+            ]
+        },
+        {
+            title: 'SYSTEM',
+            items: [
+                {
+                    name: 'Configuration',
+                    href: '/configuration',
+                    icon: Cog6ToothIcon,
+                    current: isCurrentPage('/configuration')
+                }
+            ]
+        }
+    ];
+
     return (
-        <div className="flex flex-col h-full bg-slate-800 border-r border-slate-700">
-            {/* Logo */}
-            <div className="flex items-center justify-center h-16 px-4 border-b border-slate-700 bg-green-600">
-                <div className="flex items-center text-white">
-                    <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center mr-3">
-                        <span className="text-green-600 font-bold text-lg">G</span>
+        <div className={classNames(
+            'flex flex-col flex-grow bg-slate-800 overflow-y-auto',
+            mobile ? 'bg-slate-800' : ''
+        )}>
+            {/* Logo and branding */}
+            <div className="flex items-center flex-shrink-0 px-4 py-6 bg-slate-900">
+                <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                        <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
+                            <span className="text-white font-bold text-lg">G</span>
+                        </div>
                     </div>
-                    <div>
+                    <div className="ml-3 text-white">
                         <div className="text-sm font-bold">GAPURA</div>
                         <div className="text-xs opacity-90">TRAINING SYSTEM</div>
                     </div>
@@ -87,28 +142,43 @@ export default function Sidebar({ user, mobile = false }) {
                         </h3>
                         <div className="space-y-1">
                             {section.items.map((item) => {
-                                const current = url.startsWith(item.href);
                                 return (
                                     <Link
                                         key={item.name}
                                         href={item.href}
                                         className={classNames(
-                                            current
-                                                ? 'bg-green-600 text-white shadow-lg'
+                                            item.current
+                                                ? 'bg-green-600 text-white shadow-lg ring-1 ring-green-500'
                                                 : 'text-slate-300 hover:bg-slate-700 hover:text-white',
                                             'group flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 ease-in-out'
                                         )}
                                     >
                                         <item.icon
                                             className={classNames(
-                                                current
-                                                    ? 'text-green-100'
-                                                    : 'text-slate-400 group-hover:text-slate-200',
-                                                'mr-3 h-5 w-5 flex-shrink-0'
+                                                item.current
+                                                    ? 'text-green-200'
+                                                    : 'text-slate-400 group-hover:text-slate-300',
+                                                'mr-3 flex-shrink-0 h-5 w-5 transition-colors duration-200'
                                             )}
-                                            aria-hidden="true"
                                         />
-                                        {item.name}
+                                        <div className="flex-1">
+                                            <div className="text-sm font-medium">{item.name}</div>
+                                            {item.description && (
+                                                <div className={classNames(
+                                                    item.current
+                                                        ? 'text-green-200'
+                                                        : 'text-slate-400 group-hover:text-slate-300',
+                                                    'text-xs mt-0.5'
+                                                )}>
+                                                    {item.description}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Active indicator */}
+                                        {item.current && (
+                                            <div className="ml-2 h-2 w-2 bg-green-300 rounded-full"></div>
+                                        )}
                                     </Link>
                                 );
                             })}
@@ -117,30 +187,30 @@ export default function Sidebar({ user, mobile = false }) {
                 ))}
             </nav>
 
-            {/* User info */}
-            <div className="flex-shrink-0 border-t border-slate-700 p-4 bg-slate-750">
-                <div className="flex items-center mb-3">
+            {/* Current page indicator for debugging */}
+            {process.env.NODE_ENV === 'development' && (
+                <div className="px-3 py-2 border-t border-slate-700 bg-slate-900">
+                    <div className="text-xs text-slate-400">
+                        Current URL: <span className="text-slate-300">{url}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* User info at bottom */}
+            <div className="flex-shrink-0 border-t border-slate-700 p-4">
+                <div className="flex items-center">
                     <div className="flex-shrink-0">
-                        <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
-                            <span className="text-white font-medium text-sm">
-                                {user?.name?.charAt(0).toUpperCase() || 'A'}
+                        <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-sm font-medium">
+                                {user?.name?.charAt(0) || 'G'}
                             </span>
                         </div>
                     </div>
-                    <div className="ml-3">
-                        <div className="text-sm font-medium text-slate-200">{user?.name || 'Admin'}</div>
+                    <div className="ml-3 text-white">
+                        <div className="text-sm font-medium">{user?.name || 'GAPURA Super Admin'}</div>
                         <div className="text-xs text-slate-400">{user?.email || 'admin@gapura.com'}</div>
                     </div>
                 </div>
-
-                {/* Logout button */}
-                <button
-                    onClick={logout}
-                    className="w-full flex items-center px-3 py-2 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-700 hover:text-white transition-all duration-200"
-                >
-                    <ArrowLeftOnRectangleIcon className="mr-3 h-5 w-5 text-slate-400" aria-hidden="true" />
-                    Sign out
-                </button>
             </div>
         </div>
     );
