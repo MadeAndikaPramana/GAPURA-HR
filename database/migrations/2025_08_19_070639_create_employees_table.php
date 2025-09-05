@@ -6,38 +6,40 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('employees', function (Blueprint $table) {
-            $table->id();
-            $table->string('employee_id', 20)->unique();
+            $table->id(); // Internal primary key
+            $table->string('nip')->unique(); // Can change, but unique
             $table->string('name');
-            $table->foreignId('department_id')->nullable()->constrained('departments');
-            $table->string('email')->unique()->nullable();
-            $table->string('phone', 20)->nullable();
-            $table->string('position', 100)->nullable();
-            $table->string('position_level', 50)->nullable();
-            $table->string('employment_type', 50)->nullable();
+            $table->foreignId('department_id')->constrained();
+            $table->string('email')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('position')->nullable();
             $table->date('hire_date')->nullable();
-            $table->foreignId('supervisor_id')->nullable()->constrained('employees');
             $table->enum('status', ['active', 'inactive'])->default('active');
+
+            // Background Check fields
+            $table->json('background_check_files')->nullable();
             $table->date('background_check_date')->nullable();
-            $table->string('background_check_status', 50)->nullable();
+            $table->enum('background_check_status', [
+                'not_started', 'in_progress', 'completed', 'expired'
+            ])->default('not_started');
             $table->text('background_check_notes')->nullable();
-            $table->string('emergency_contact_name')->nullable();
-            $table->string('emergency_contact_phone', 20)->nullable();
-            $table->text('address')->nullable();
-            $table->string('profile_photo_path')->nullable();
+
+            // Container metadata
+            $table->timestamp('container_created_at')->nullable();
+            $table->integer('total_files_count')->default(0);
+
             $table->timestamps();
+
+            // Indexes for performance
+            $table->index(['status', 'department_id']);
+            $table->index(['nip', 'status']);
+            $table->index('container_created_at');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('employees');
