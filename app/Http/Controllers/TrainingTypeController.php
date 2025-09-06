@@ -1,27 +1,27 @@
 <?php
+// app/Http/Controllers/TrainingTypeController.php - Fixed method calls
 
 namespace App\Http\Controllers;
 
 use App\Models\CertificateType;
 use App\Models\Employee;
-use App\Models\EmployeeCertificate;
+use App\Models\Department;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class TrainingTypeController extends Controller
 {
+    // ===== BASIC CRUD OPERATIONS =====
+
     /**
-     * Display training types list
+     * Display training types index with statistics
      */
     public function index(Request $request)
     {
-        $query = CertificateType::withCount([
-            'employeeCertificates as total_certificates',
-            'activeCertificates as active_certificates'
-        ]);
+        $query = CertificateType::query();
 
-        // Search functionality
+        // Search filter
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function($q) use ($search) {
@@ -38,140 +38,122 @@ class TrainingTypeController extends Controller
 
         // Status filter
         if ($request->filled('status')) {
-            $isActive = $request->status === 'active';
-            $query->where('is_active', $isActive);
+            $query->where('is_active', $request->status === 'active');
+        }
+
+        // Mandatory filter
+        if ($request->filled('mandatory')) {
+            $query->where('is_mandatory', $request->mandatory === 'mandatory');
         }
 
         $certificateTypes = $query->orderBy('name')->paginate(15);
 
-        // Transform data for enhanced display
+        // ✅ FIXED: Use the correct method names that exist in the model
         $certificateTypes->getCollection()->transform(function ($type) {
-            // Get unique employees count
-            $uniqueEmployees = EmployeeCertificate::where('certificate_type_id', $type->id)
-                ->distinct('employee_id')
-                ->count();
-
-            $type->unique_employees_count = $uniqueEmployees;
-            $type->recency_score = $this->calculateRecencyScore($type);
-
+            $type->container_stats = [
+                'total_certificates' => $type->getTotalCertificatesCount(),
+                'active_certificates' => $type->getActiveCertificatesCount(),
+                'expired_certificates' => $type->getExpiredCertificatesCount(),
+                'expiring_soon_certificates' => $type->getExpiringSoonCertificatesCount(),
+                'unique_employees' => $type->employeeCertificates()->distinct('employee_id')->count(),
+                'compliance_rate' => $this->calculateComplianceRate($type)
+            ];
             return $type;
         });
 
-        // Get categories for filter
-        $categories = CertificateType::where('is_active', true)
-            ->whereNotNull('category')
-            ->distinct('category')
-            ->pluck('category')
-            ->sort()
-            ->values();
+        // Get available categories for filter
+        $categories = CertificateType::whereNotNull('category')
+                                   ->distinct('category')
+                                   ->pluck('category')
+                                   ->sort()
+                                   ->values();
 
         return Inertia::render('TrainingTypes/Index', [
             'certificateTypes' => $certificateTypes,
             'categories' => $categories,
-            'filters' => $request->only(['search', 'category', 'status']),
-            'stats' => $this->getStats(),
+            'filters' => $request->only(['search', 'category', 'status', 'mandatory']),
+            'stats' => $this->getStats()
         ]);
     }
 
     /**
-     * Show form for creating new training type
+     * Show form for creating training type
      */
     public function create()
-    {
-        // Get existing categories for dropdown
-        $existingCategories = CertificateType::whereNotNull('category')
-            ->distinct('category')
-            ->pluck('category')
-            ->sort()
-            ->values();
+{
+    return Inertia::render('TrainingTypes/Create');
+}
 
-        return Inertia::render('TrainingTypes/Create', [
-            'existingCategories' => $existingCategories,
-        ]);
-    }
 
     /**
      * Store new training type
      */
     public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:100|unique:certificate_types,name',
-            'code' => 'nullable|string|max:50|unique:certificate_types,code',
-            'category' => 'nullable|string|max:50',
-            'validity_months' => 'nullable|integer|min:1|max:120',
-            'warning_days' => 'nullable|integer|min:1|max:365',
-            'is_mandatory' => 'boolean',
-            'is_recurrent' => 'boolean',
-            'description' => 'nullable|string|max:1000',
-            'requirements' => 'nullable|string|max:1000',
-            'learning_objectives' => 'nullable|string|max:1000',
-            'estimated_cost' => 'nullable|numeric|min:0',
-            'estimated_duration_hours' => 'nullable|numeric|min:0',
-            'is_active' => 'boolean',
-        ]);
+{
+    $validated = $request->validate([
+        'name' => 'required|string|max:100|unique:certificate_types,name',
+        'code' => 'nullable|string|max:50|unique:certificate_types,code',
+        'validity_months' => 'nullable|integer|min:1|max:120',
+        'warning_days' => 'nullable|integer|min:1|max:365',
+        'is_recurrent' => 'boolean',
+        'description' => 'nullable|string|max:1000',
+        'requirements' => 'nullable|string|max:1000',
+        'learning_objectives' => 'nullable|string|max:1000',
+        'estimated_cost' => 'nullable|numeric|min:0',
+        'estimated_duration_hours' => 'nullable|numeric|min:0',
+        'is_active' => 'boolean'
+    ]);
 
-        // Generate code if not provided
-        if (empty($validated['code'])) {
-            $validated['code'] = $this->generateCode($validated['name']);
-        }
-
-        $certificateType = CertificateType::create($validated);
-
-        return redirect()->route('training-types.index')
-            ->with('success', "Training type '{$certificateType->name}' created successfully.");
+    // Generate code if not provided
+    if (empty($validated['code'])) {
+        $validated['code'] = $this->generateCode($validated['name']);
     }
+
+    $certificateType = CertificateType::create($validated);
+
+    return redirect()->route('training-types.index')
+        ->with('success', "Training type '{$certificateType->name}' created successfully.");
+}
 
     /**
      * Show form for editing training type
      */
     public function edit(CertificateType $certificateType)
-    {
-        // Get existing categories for dropdown
-        $existingCategories = CertificateType::whereNotNull('category')
-            ->where('id', '!=', $certificateType->id)
-            ->distinct('category')
-            ->pluck('category')
-            ->sort()
-            ->values();
-
-        return Inertia::render('TrainingTypes/Edit', [
-            'certificateType' => $certificateType,
-            'existingCategories' => $existingCategories,
-        ]);
-    }
+{
+    return Inertia::render('TrainingTypes/Edit', [
+        'certificateType' => $certificateType
+    ]);
+}
 
     /**
      * Update training type
      */
     public function update(Request $request, CertificateType $certificateType)
-    {
-        $validated = $request->validate([
-            'name' => 'required|string|max:100|unique:certificate_types,name,' . $certificateType->id,
-            'code' => 'nullable|string|max:50|unique:certificate_types,code,' . $certificateType->id,
-            'category' => 'nullable|string|max:50',
-            'validity_months' => 'nullable|integer|min:1|max:120',
-            'warning_days' => 'nullable|integer|min:1|max:365',
-            'is_mandatory' => 'boolean',
-            'is_recurrent' => 'boolean',
-            'description' => 'nullable|string|max:1000',
-            'requirements' => 'nullable|string|max:1000',
-            'learning_objectives' => 'nullable|string|max:1000',
-            'estimated_cost' => 'nullable|numeric|min:0',
-            'estimated_duration_hours' => 'nullable|numeric|min:0',
-            'is_active' => 'boolean',
-        ]);
+{
+    $validated = $request->validate([
+        'name' => 'required|string|max:100|unique:certificate_types,name,' . $certificateType->id,
+        'code' => 'nullable|string|max:50|unique:certificate_types,code,' . $certificateType->id,
+        'validity_months' => 'nullable|integer|min:1|max:120',
+        'warning_days' => 'nullable|integer|min:1|max:365',
+        'is_recurrent' => 'boolean',
+        'description' => 'nullable|string|max:1000',
+        'requirements' => 'nullable|string|max:1000',
+        'learning_objectives' => 'nullable|string|max:1000',
+        'estimated_cost' => 'nullable|numeric|min:0',
+        'estimated_duration_hours' => 'nullable|numeric|min:0',
+        'is_active' => 'boolean'
+    ]);
 
-        // Generate code if not provided
-        if (empty($validated['code'])) {
-            $validated['code'] = $this->generateCode($validated['name']);
-        }
-
-        $certificateType->update($validated);
-
-        return redirect()->route('training-types.index')
-            ->with('success', "Training type '{$certificateType->name}' updated successfully.");
+    // Generate code if not provided
+    if (empty($validated['code'])) {
+        $validated['code'] = $this->generateCode($validated['name']);
     }
+
+    $certificateType->update($validated);
+
+    return redirect()->route('training-types.index')
+        ->with('success', "Training type '{$certificateType->name}' updated successfully.");
+}
 
     /**
      * Delete training type
@@ -194,15 +176,20 @@ class TrainingTypeController extends Controller
 
     /**
      * Show training type container (who has this certificate?)
+     * This is the main "certificate jenis ini dimiliki siapa saja" view
      */
     public function showContainer(CertificateType $certificateType)
     {
         // Get container data (reverse lookup)
         $containerData = $certificateType->getContainerData();
 
+        // Get departments for filters
+        $departments = Department::orderBy('name')->get(['id', 'name']);
+
         return Inertia::render('TrainingTypes/Container', [
             'certificateType' => $certificateType,
             'containerData' => $containerData,
+            'departments' => $departments,
             'breadcrumb' => [
                 ['name' => 'Training Types', 'url' => route('training-types.index')],
                 ['name' => $certificateType->name, 'url' => null]
@@ -211,104 +198,60 @@ class TrainingTypeController extends Controller
     }
 
     /**
-     * Get employees list for this training type
+     * Get employees list for this training type (AJAX endpoint)
      */
     public function getEmployeesList(Request $request, CertificateType $certificateType)
     {
-        $query = $certificateType->getEmployeesWithCertificate();
+        $employees = $certificateType->getEmployeesWithCertificate();
 
         // Status filter
         if ($request->filled('status')) {
             $status = $request->status;
-            $query = $query->filter(function($employee) use ($status) {
-                $latestCert = $employee->employeeCertificates->first();
-                return $latestCert && $latestCert->status === $status;
+            $employees = $employees->filter(function($employee) use ($status) {
+                return $employee['latest_certificate']
+                    && $employee['latest_certificate']['status'] === $status;
             });
         }
 
         // Department filter
-        if ($request->filled('department')) {
-            $departmentId = $request->department;
-            $query = $query->filter(function($employee) use ($departmentId) {
-                return $employee->department_id == $departmentId;
+        if ($request->filled('department_id')) {
+            $departmentId = $request->department_id;
+            $employees = $employees->filter(function($employee) use ($departmentId) {
+                // Get the actual employee model to check department
+                $emp = Employee::find($employee['employee']['id']);
+                return $emp && $emp->department_id == $departmentId;
             });
         }
 
-        $employees = $query->values(); // Reset collection keys
-
-        // Transform for API response
-        $transformedEmployees = $employees->map(function($employee) {
-            $latestCert = $employee->employeeCertificates->first();
-            $allCerts = $employee->employeeCertificates;
-
-            return [
-                'employee' => [
-                    'id' => $employee->id,
-                    'employee_id' => $employee->employee_id,
-                    'nip' => $employee->nip,
-                    'name' => $employee->name,
-                    'department' => $employee->department?->name,
-                    'position' => $employee->position,
-                    'status' => $employee->status
-                ],
-                'latest_certificate' => $latestCert ? [
-                    'id' => $latestCert->id,
-                    'certificate_number' => $latestCert->certificate_number,
-                    'issue_date' => $latestCert->issue_date,
-                    'expiry_date' => $latestCert->expiry_date,
-                    'status' => $latestCert->status,
-                    'issuer' => $latestCert->issuer,
-                ] : null,
-                'certificates_count' => $allCerts->count(),
-                'certificates_history' => $allCerts->map(function($cert) {
-                    return [
-                        'id' => $cert->id,
-                        'certificate_number' => $cert->certificate_number,
-                        'issue_date' => $cert->issue_date,
-                        'expiry_date' => $cert->expiry_date,
-                        'status' => $cert->status,
-                    ];
-                })->toArray()
-            ];
-        });
-
-        return response()->json($transformedEmployees);
-    }
-
-    /**
-     * Get statistics for training type
-     */
-    public function getStatistics(CertificateType $certificateType)
-    {
-        $stats = $certificateType->getCertificateStats();
-
-        // Add additional statistics
-        $recentCertificates = $certificateType->employeeCertificates()
-            ->with(['employee'])
-            ->latest('created_at')
-            ->limit(10)
-            ->get();
-
-        $expiringCertificates = $certificateType->employeeCertificates()
-            ->with(['employee'])
-            ->where('status', 'expiring_soon')
-            ->orderBy('expiry_date')
-            ->get();
+        // Search filter
+        if ($request->filled('search')) {
+            $search = strtolower($request->search);
+            $employees = $employees->filter(function($employee) use ($search) {
+                return str_contains(strtolower($employee['employee']['name']), $search) ||
+                       str_contains(strtolower($employee['employee']['employee_id'] ?? ''), $search);
+            });
+        }
 
         return response()->json([
-            'statistics' => $stats,
-            'recent_certificates' => $recentCertificates,
-            'expiring_certificates' => $expiringCertificates,
-            'compliance_rate' => $this->calculateComplianceRate($certificateType),
+            'employees' => $employees->values(),
+            'total' => $employees->count()
         ]);
     }
 
-    // ===== SEARCH & API METHODS =====
+    /**
+     * Get container statistics for this training type (AJAX endpoint)
+     */
+    public function getContainerStats(CertificateType $certificateType)
+    {
+        $stats = $certificateType->getContainerStatistics();
+
+        return response()->json($stats);
+    }
 
     /**
-     * API search for AJAX calls
+     * Search training types (for autocomplete/AJAX)
      */
-    public function apiSearch(Request $request)
+    public function search(Request $request)
     {
         $query = $request->get('q', '');
         $limit = $request->get('limit', 10);
@@ -354,24 +297,6 @@ class TrainingTypeController extends Controller
     }
 
     /**
-     * Calculate recency score for training type
-     */
-    private function calculateRecencyScore(CertificateType $certificateType)
-    {
-        $recentCertificates = $certificateType->employeeCertificates()
-            ->where('created_at', '>=', now()->subMonths(6))
-            ->count();
-
-        $totalCertificates = $certificateType->employeeCertificates()->count();
-
-        if ($totalCertificates === 0) {
-            return 0;
-        }
-
-        return round(($recentCertificates / $totalCertificates) * 100, 1);
-    }
-
-    /**
      * Calculate compliance rate for training type
      */
     private function calculateComplianceRate(CertificateType $certificateType)
@@ -382,9 +307,9 @@ class TrainingTypeController extends Controller
 
         $totalEmployees = Employee::where('status', 'active')->count();
         $employeesWithValidCert = $certificateType->employeeCertificates()
-            ->where('status', 'active')
-            ->distinct('employee_id')
-            ->count();
+                                                 ->where('status', 'active')
+                                                 ->distinct('employee_id')
+                                                 ->count();
 
         if ($totalEmployees === 0) {
             return 0;
@@ -397,15 +322,12 @@ class TrainingTypeController extends Controller
      * Get statistics for training types index
      */
     private function getStats()
-    {
-        return [
-            'total_types' => CertificateType::count(),
-            'active_types' => CertificateType::where('is_active', true)->count(),
-            'mandatory_types' => CertificateType::where('is_mandatory', true)->count(),
-            'categories_count' => CertificateType::whereNotNull('category')
-                ->distinct('category')
-                ->count(),
-            'types_with_certificates' => CertificateType::has('employeeCertificates')->count(),
-        ];
-    }
+{
+    return [
+        'total_types' => CertificateType::count(),
+        'active_types' => CertificateType::where('is_active', true)->count(),
+        'recurrent_types' => CertificateType::where('is_recurrent', true)->count(),
+        'types_with_certificates' => CertificateType::has('employeeCertificates')->count(),
+    ];
+}
 }
