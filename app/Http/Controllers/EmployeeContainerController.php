@@ -1,4 +1,5 @@
 <?php
+// app/Http/Controllers/EmployeeContainerController.php - FINAL CLEAN VERSION
 
 namespace App\Http\Controllers;
 
@@ -9,29 +10,41 @@ use App\Models\Department;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
-use Carbon\Carbon;
 
 class EmployeeContainerController extends Controller
 {
     /**
-     * Display employee containers in Google Drive style
+     * Display all employee containers (main index page)
      */
     public function index(Request $request)
     {
-        $query = Employee::withContainerData()
+        $query = Employee::with(['department'])
             ->withCount([
                 'employeeCertificates as total_certificates',
-                'activeCertificates as active_certificates'
+                'employeeCertificates as active_certificates' => function($q) {
+                    $q->where('status', 'active');
+                },
+                'employeeCertificates as expired_certificates' => function($q) {
+                    $q->where('status', 'expired');
+                },
+                'employeeCertificates as expiring_soon_certificates' => function($q) {
+                    $q->where('status', 'expiring_soon');
+                }
             ]);
 
         // Search functionality
         if ($request->filled('search')) {
-            $query->search($request->search);
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_id', 'like', "%{$search}%")
+                  ->orWhere('position', 'like', "%{$search}%");
+            });
         }
 
         // Department filter
         if ($request->filled('department')) {
-            $query->byDepartment($request->department);
+            $query->where('department_id', $request->department);
         }
 
         // Status filter
@@ -42,154 +55,121 @@ class EmployeeContainerController extends Controller
         // Container status filter
         if ($request->filled('container_status')) {
             switch ($request->container_status) {
-                case 'with_files':
-                    $query->where('total_files_count', '>', 0);
-                    break;
-                case 'without_files':
-                    $query->where('total_files_count', '=', 0);
-                    break;
                 case 'with_certificates':
                     $query->has('employeeCertificates');
                     break;
-                case 'with_background_check':
-                    $query->whereNotNull('background_check_files');
+                case 'no_certificates':
+                    $query->doesntHave('employeeCertificates');
+                    break;
+                case 'expired_certificates':
+                    $query->whereHas('employeeCertificates', function($q) {
+                        $q->where('status', 'expired');
+                    });
+                    break;
+                case 'expiring_soon':
+                    $query->whereHas('employeeCertificates', function($q) {
+                        $q->where('status', 'expiring_soon');
+                    });
                     break;
             }
         }
 
-        $employees = $query->orderBy('name')->paginate(24); // 24 for nice grid layout
+        $employees = $query->orderBy('name')->paginate(15);
 
-        // Transform data for container grid view
+        // Add container statistics to each employee
         $employees->getCollection()->transform(function ($employee) {
-            return [
-                'id' => $employee->id,
-                'employee_id' => $employee->employee_id,
-                'nip' => $employee->nip,
-                'name' => $employee->name,
-                'department' => $employee->department?->name,
-                'position' => $employee->position,
-                'status' => $employee->status,
-
-                // Container data
-                'container_created_at' => $employee->container_created_at,
-                'has_container' => !is_null($employee->container_created_at),
-                'total_files' => $employee->total_files_count,
-                'total_certificates' => $employee->total_certificates,
-                'active_certificates' => $employee->active_certificates,
-
-                // Background check status
-                'background_check_status' => $employee->background_check_status,
-                'has_background_check' => !empty($employee->background_check_files),
-                'background_check_files_count' => count($employee->background_check_files ?? []),
-
-                // Container status indicators
-                'container_status' => $this->getContainerStatus($employee),
-                'status_color' => $this->getContainerStatusColor($employee),
+            $employee->container_stats = [
+                'total' => $employee->total_certificates,
+                'active' => $employee->active_certificates,
+                'expired' => $employee->expired_certificates,
+                'expiring_soon' => $employee->expiring_soon_certificates,
+                'has_background_check' => !is_null($employee->background_check_date),
+                'background_check_status' => $employee->background_check_status
             ];
+
+            return $employee;
         });
 
-        return Inertia::render('EmployeeContainers/Index', [
+        // Get overall statistics
+        $overallStats = [
+            'total_employees' => Employee::count(),
+            'employees_with_certificates' => Employee::has('employeeCertificates')->count(),
+            'employees_with_background_checks' => Employee::whereNotNull('background_check_date')->count(),
+            'total_certificates' => EmployeeCertificate::count(),
+            'active_certificates' => EmployeeCertificate::where('status', 'active')->count(),
+            'expired_certificates' => EmployeeCertificate::where('status', 'expired')->count(),
+            'expiring_soon' => EmployeeCertificate::where('status', 'expiring_soon')->count(),
+        ];
+
+        return Inertia::render('EmployeeContainer/Index', [
             'employees' => $employees,
-            'departments' => Department::orderBy('name')->get(['id', 'name']),
-            'filters' => $request->only(['search', 'department', 'status', 'container_status']),
-            'stats' => $this->getContainerStats(),
+            'departments' => Department::all(['id', 'name']),
+            'certificateTypes' => CertificateType::where('is_active', true)->get(['id', 'name', 'code']),
+            'overallStats' => $overallStats,
+            'filters' => $request->only(['search', 'department', 'status', 'container_status'])
         ]);
     }
 
     /**
-     * Show individual employee container (Digital folder view)
+     * Display individual employee container (digital folder)
      */
     public function show(Employee $employee)
     {
-        // Ensure container exists
-        if (!$employee->container_created_at) {
-            $employee->createDigitalContainer();
-        }
+        // Load relationships needed for container
+        $employee->load(['department', 'employeeCertificates.certificateType']);
 
         // Get complete container data
         $containerData = $employee->getContainerData();
 
-        // Get certificate types for dropdown
-        $certificateTypes = CertificateType::active()
-            ->orderBy('name')
-            ->get(['id', 'name', 'code', 'category']);
-
-        return Inertia::render('EmployeeContainers/Show', [
-            'employee' => $employee->load('department'),
+        return Inertia::render('EmployeeContainer/Show', [
+            'employee' => $employee,
             'containerData' => $containerData,
-            'certificateTypes' => $certificateTypes,
-            'breadcrumb' => [
-                ['name' => 'Employee Containers', 'url' => route('employee-containers.index')],
-                ['name' => $employee->name, 'url' => null]
-            ]
+            'certificateTypes' => CertificateType::where('is_active', true)->get(['id', 'name', 'code', 'validity_months'])
         ]);
     }
-
-    // ===== BACKGROUND CHECK OPERATIONS =====
 
     /**
      * Upload background check files
      */
-    public function uploadBackgroundCheck(Request $request, Employee $employee)
+    public function uploadBackgroundCheckFiles(Request $request, Employee $employee)
     {
         $request->validate([
-            'files' => 'required|array|min:1',
-            'files.*' => 'file|mimes:pdf,jpg,jpeg|max:5120', // 5MB max
+            'files' => 'required|array',
+            'files.*' => 'file|mimes:pdf,jpg,jpeg,png|max:5120', // 5MB max
             'notes' => 'nullable|string|max:1000',
-            'status' => 'nullable|in:not_started,in_progress,completed,expired'
+            'status' => 'nullable|in:not_started,in_progress,cleared,pending_review,requires_follow_up,expired,rejected'
         ]);
 
         $uploadedFiles = [];
 
         foreach ($request->file('files') as $file) {
-            $filePath = $this->storeEmployeeFile($employee, $file, 'background-checks');
-
-            $employee->addBackgroundCheckFile(
-                $filePath,
-                $file->getClientOriginalName(),
-                $file->getSize(),
-                $file->getMimeType()
+            $uploadedFile = $this->storeEmployeeFile(
+                $employee,
+                $file,
+                'background-checks'
             );
 
-            $uploadedFiles[] = $file->getClientOriginalName();
+            $uploadedFiles[] = $uploadedFile;
         }
 
-        // Update background check metadata
-        if ($request->filled('notes') || $request->filled('status')) {
-            $employee->update([
-                'background_check_notes' => $request->notes ?? $employee->background_check_notes,
-                'background_check_status' => $request->status ?? $employee->background_check_status,
-                'background_check_date' => now()
-            ]);
-        }
-
-        return back()->with('success', 'Background check files uploaded: ' . implode(', ', $uploadedFiles));
-    }
-
-    /**
-     * Update background check metadata
-     */
-    public function updateBackgroundCheck(Request $request, Employee $employee)
-    {
-        $validated = $request->validate([
-            'status' => 'required|in:not_started,in_progress,completed,expired',
-            'notes' => 'nullable|string|max:1000',
-            'date' => 'nullable|date'
-        ]);
+        // Update employee background check data
+        $existingFiles = $employee->background_check_files ?? [];
+        $allFiles = array_merge($existingFiles, $uploadedFiles);
 
         $employee->update([
-            'background_check_status' => $validated['status'],
-            'background_check_notes' => $validated['notes'],
-            'background_check_date' => $validated['date'] ?? $employee->background_check_date ?? now()
+            'background_check_files' => $allFiles,
+            'background_check_date' => now(),
+            'background_check_status' => $request->status ?? $employee->background_check_status,
+            'background_check_notes' => $request->notes ?? $employee->background_check_notes
         ]);
 
-        return back()->with('success', 'Background check information updated.');
+        return back()->with('success', 'Background check files uploaded successfully.');
     }
 
     /**
      * Download background check file
      */
-    public function downloadBackgroundCheck(Employee $employee, $fileIndex)
+    public function downloadBackgroundCheckFile(Employee $employee, $fileIndex)
     {
         $files = $employee->background_check_files ?? [];
 
@@ -198,197 +178,165 @@ class EmployeeContainerController extends Controller
         }
 
         $file = $files[$fileIndex];
+        $filePath = $file['path'];
 
-        if (!Storage::disk('private')->exists($file['path'])) {
+        if (!Storage::disk('private')->exists($filePath)) {
             abort(404, 'File not found on disk');
         }
 
-        return Storage::disk('private')->download($file['path'], $file['original_name']);
+        return Storage::disk('private')->download($filePath, $file['original_name']);
     }
 
     /**
-     * Remove background check file
+     * Update background check status and notes
      */
-    public function removeBackgroundCheck(Employee $employee, $fileIndex)
+    public function updateBackgroundCheck(Request $request, Employee $employee)
     {
-        $files = $employee->background_check_files ?? [];
+        $request->validate([
+            'status' => 'required|in:not_started,in_progress,cleared,pending_review,requires_follow_up,expired,rejected',
+            'notes' => 'nullable|string|max:1000'
+        ]);
 
-        if (!isset($files[$fileIndex])) {
-            abort(404, 'File not found');
-        }
+        $employee->update([
+            'background_check_status' => $request->status,
+            'background_check_notes' => $request->notes,
+            'background_check_date' => $request->status !== 'not_started' ? ($employee->background_check_date ?? now()) : null
+        ]);
 
-        $file = $files[$fileIndex];
-
-        // Delete from storage
-        if (Storage::disk('private')->exists($file['path'])) {
-            Storage::disk('private')->delete($file['path']);
-        }
-
-        // Remove from employee record
-        $employee->removeBackgroundCheckFile($fileIndex);
-
-        return back()->with('success', 'Background check file removed successfully.');
+        return back()->with('success', 'Background check updated successfully.');
     }
 
-    // ===== CERTIFICATE OPERATIONS (RECURRENT SUPPORT) =====
-
     /**
-     * Add new certificate to container (supports recurrent)
+     * Store certificate with files
      */
-    public function addCertificate(Request $request, Employee $employee)
+    public function storeCertificate(Request $request, Employee $employee)
     {
-        $validated = $request->validate([
+        $request->validate([
             'certificate_type_id' => 'required|exists:certificate_types,id',
-            'certificate_number' => 'nullable|string|max:100',
-            'issuer' => 'nullable|string|max:100',
+            'certificate_number' => 'required|string|max:100|unique:employee_certificates',
+            'issuer' => 'required|string|max:100',
             'training_provider' => 'nullable|string|max:255',
             'issue_date' => 'required|date',
             'expiry_date' => 'nullable|date|after:issue_date',
             'completion_date' => 'nullable|date',
             'training_date' => 'nullable|date',
-            'notes' => 'nullable|string|max:1000',
             'files' => 'nullable|array',
-            'files.*' => 'file|mimes:pdf,jpg,jpeg|max:5120'
+            'files.*' => 'file|mimes:pdf,jpg,jpeg,png|max:10240', // 10MB max
+            'training_hours' => 'nullable|numeric|min:0|max:999.99',
+            'cost' => 'nullable|numeric|min:0|max:999999.99',
+            'score' => 'nullable|string|max:10',
+            'location' => 'nullable|string|max:255',
+            'instructor_name' => 'nullable|string|max:255',
+            'notes' => 'nullable|string|max:1000'
         ]);
 
-        // Handle file uploads
-        $certificateFiles = [];
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $filePath = $this->storeEmployeeFile($employee, $file, 'certificates');
+        // Get certificate type for folder naming
+        $certificateType = CertificateType::findOrFail($request->certificate_type_id);
 
-                $certificateFiles[] = [
-                    'path' => $filePath,
-                    'original_name' => $file->getClientOriginalName(),
-                    'file_size' => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
-                    'uploaded_at' => now()->toISOString(),
-                    'uploaded_by' => auth()->user()->name ?? 'System'
-                ];
-            }
-        }
-
-        // Determine status based on expiry date
-        $status = $this->calculateCertificateStatus($validated['expiry_date']);
-
-        // Create certificate (recurrent - always add new, keep old)
-        $certificate = $employee->employeeCertificates()->create([
-            'certificate_type_id' => $validated['certificate_type_id'],
-            'certificate_number' => $validated['certificate_number'],
-            'issuer' => $validated['issuer'] ?? 'Unknown',
-            'training_provider' => $validated['training_provider'],
-            'issue_date' => $validated['issue_date'],
-            'expiry_date' => $validated['expiry_date'],
-            'completion_date' => $validated['completion_date'],
-            'training_date' => $validated['training_date'],
-            'status' => $status,
-            'certificate_files' => $certificateFiles,
-            'notes' => $validated['notes'],
+        // Create certificate record
+        $certificate = EmployeeCertificate::create([
+            'employee_id' => $employee->id,
+            'certificate_type_id' => $request->certificate_type_id,
+            'certificate_number' => $request->certificate_number,
+            'issuer' => $request->issuer,
+            'training_provider' => $request->training_provider,
+            'issue_date' => $request->issue_date,
+            'expiry_date' => $request->expiry_date,
+            'completion_date' => $request->completion_date,
+            'training_date' => $request->training_date,
+            'status' => $request->completion_date ? 'completed' : 'pending',
+            'training_hours' => $request->training_hours,
+            'cost' => $request->cost,
+            'score' => $request->score,
+            'location' => $request->location,
+            'instructor_name' => $request->instructor_name,
+            'notes' => $request->notes,
             'created_by_id' => auth()->id()
         ]);
 
-        // Update employee files count
-        $employee->calculateTotalFiles();
+        // Handle file uploads
+        if ($request->hasFile('files')) {
+            $uploadedFiles = [];
 
-        return back()->with('success', 'Certificate added to container successfully.');
+            foreach ($request->file('files') as $file) {
+                $uploadedFile = $this->storeEmployeeFile(
+                    $employee,
+                    $file,
+                    "certificates/{$certificateType->code}"
+                );
+
+                $uploadedFiles[] = $uploadedFile;
+            }
+
+            $certificate->update(['certificate_files' => $uploadedFiles]);
+        }
+
+        // Update certificate status based on dates
+        if (method_exists($certificate, 'updateStatusBasedOnDates')) {
+            $certificate->updateStatusBasedOnDates();
+        }
+
+        return back()->with('success', 'Certificate added successfully to employee container.');
     }
 
     /**
-     * Update existing certificate
+     * Update certificate
      */
     public function updateCertificate(Request $request, Employee $employee, EmployeeCertificate $certificate)
     {
-        // Ensure certificate belongs to this employee
-        if ($certificate->employee_id !== $employee->id) {
-            abort(403, 'Certificate does not belong to this employee');
-        }
-
-        $validated = $request->validate([
-            'certificate_number' => 'nullable|string|max:100',
-            'issuer' => 'nullable|string|max:100',
+        $request->validate([
+            'certificate_number' => 'required|string|max:100|unique:employee_certificates,certificate_number,' . $certificate->id,
+            'issuer' => 'required|string|max:100',
             'training_provider' => 'nullable|string|max:255',
             'issue_date' => 'required|date',
             'expiry_date' => 'nullable|date|after:issue_date',
             'completion_date' => 'nullable|date',
             'training_date' => 'nullable|date',
-            'notes' => 'nullable|string|max:1000',
-            'files' => 'nullable|array',
-            'files.*' => 'file|mimes:pdf,jpg,jpeg|max:5120'
+            'training_hours' => 'nullable|numeric|min:0|max:999.99',
+            'cost' => 'nullable|numeric|min:0|max:999999.99',
+            'score' => 'nullable|string|max:10',
+            'location' => 'nullable|string|max:255',
+            'instructor_name' => 'nullable|string|max:255',
+            'notes' => 'nullable|string|max:1000'
         ]);
 
-        // Handle new file uploads
-        $existingFiles = $certificate->certificate_files ?? [];
-        $newFiles = [];
+        $certificate->update($request->only([
+            'certificate_number', 'issuer', 'training_provider',
+            'issue_date', 'expiry_date', 'completion_date', 'training_date',
+            'training_hours', 'cost', 'score', 'location', 'instructor_name', 'notes'
+        ]));
 
-        if ($request->hasFile('files')) {
-            foreach ($request->file('files') as $file) {
-                $filePath = $this->storeEmployeeFile($employee, $file, 'certificates');
-
-                $newFiles[] = [
-                    'path' => $filePath,
-                    'original_name' => $file->getClientOriginalName(),
-                    'file_size' => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
-                    'uploaded_at' => now()->toISOString(),
-                    'uploaded_by' => auth()->user()->name ?? 'System'
-                ];
-            }
+        // Update status based on new dates
+        if (method_exists($certificate, 'updateStatusBasedOnDates')) {
+            $certificate->updateStatusBasedOnDates();
         }
-
-        $allFiles = array_merge($existingFiles, $newFiles);
-        $status = $this->calculateCertificateStatus($validated['expiry_date']);
-
-        // Update certificate
-        $certificate->update([
-            'certificate_number' => $validated['certificate_number'],
-            'issuer' => $validated['issuer'],
-            'training_provider' => $validated['training_provider'],
-            'issue_date' => $validated['issue_date'],
-            'expiry_date' => $validated['expiry_date'],
-            'completion_date' => $validated['completion_date'],
-            'training_date' => $validated['training_date'],
-            'status' => $status,
-            'certificate_files' => $allFiles,
-            'notes' => $validated['notes'],
-            'updated_by_id' => auth()->id()
-        ]);
-
-        // Update employee files count
-        $employee->calculateTotalFiles();
 
         return back()->with('success', 'Certificate updated successfully.');
     }
 
     /**
-     * Remove certificate from container
+     * Delete certificate
      */
-    public function removeCertificate(Employee $employee, EmployeeCertificate $certificate)
+    public function deleteCertificate(Employee $employee, EmployeeCertificate $certificate)
     {
-        // Ensure certificate belongs to this employee
-        if ($certificate->employee_id !== $employee->id) {
-            abort(403, 'Certificate does not belong to this employee');
-        }
-
-        // Delete certificate files from storage
-        $files = $certificate->certificate_files ?? [];
-        foreach ($files as $file) {
-            if (Storage::disk('private')->exists($file['path'])) {
-                Storage::disk('private')->delete($file['path']);
+        // Delete associated files
+        if ($certificate->certificate_files) {
+            foreach ($certificate->certificate_files as $file) {
+                if (Storage::disk('private')->exists($file['path'])) {
+                    Storage::disk('private')->delete($file['path']);
+                }
             }
         }
 
         $certificate->delete();
 
-        // Update employee files count
-        $employee->calculateTotalFiles();
-
-        return back()->with('success', 'Certificate removed from container successfully.');
+        return back()->with('success', 'Certificate deleted successfully.');
     }
 
     /**
      * Download certificate file
      */
-    public function downloadCertificate(EmployeeCertificate $certificate, $fileIndex)
+    public function downloadCertificateFile(EmployeeCertificate $certificate, $fileIndex)
     {
         $files = $certificate->certificate_files ?? [];
 
@@ -397,134 +345,41 @@ class EmployeeContainerController extends Controller
         }
 
         $file = $files[$fileIndex];
+        $filePath = $file['path'];
 
-        if (!Storage::disk('private')->exists($file['path'])) {
+        if (!Storage::disk('private')->exists($filePath)) {
             abort(404, 'File not found on disk');
         }
 
-        return Storage::disk('private')->download($file['path'], $file['original_name']);
+        return Storage::disk('private')->download($filePath, $file['original_name']);
     }
 
-    // ===== CONTAINER UTILITIES =====
+    // ===== PRIVATE HELPER METHODS =====
 
     /**
-     * Get files count for container
+     * Store file in employee's organized folder structure
      */
-    public function getFilesCount(Employee $employee)
+    private function storeEmployeeFile(Employee $employee, $file, string $subfolder): array
     {
-        $totalFiles = $employee->calculateTotalFiles();
+        $employeeFolder = "employees/{$employee->employee_id}";
+        $fullPath = "{$employeeFolder}/{$subfolder}";
 
-        return response()->json([
-            'total_files' => $totalFiles,
-            'background_check_files' => count($employee->background_check_files ?? []),
-            'certificate_files' => $employee->employeeCertificates->sum(function($cert) {
-                return count($cert->certificate_files ?? []);
-            })
-        ]);
-    }
-
-    /**
-     * Refresh container data
-     */
-    public function refreshContainer(Employee $employee)
-    {
-        $employee->calculateTotalFiles();
-
-        return response()->json([
-            'success' => true,
-            'container_data' => $employee->getContainerData()
-        ]);
-    }
-
-    /**
-     * Get container statistics via API
-     */
-    public function getContainerStats(Employee $employee)
-    {
-        return response()->json($employee->getContainerData()['container_stats']);
-    }
-
-    // ===== HELPER METHODS =====
-
-    /**
-     * Store employee file in organized structure
-     */
-    private function storeEmployeeFile(Employee $employee, $file, $subfolder)
-    {
+        // Generate unique filename with timestamp
         $timestamp = now()->format('Y-m-d_His');
-        $filename = $timestamp . '_' . $file->getClientOriginalName();
+        $extension = $file->getClientOriginalExtension();
+        $filename = "{$timestamp}_{$file->getClientOriginalName()}";
 
-        $path = "containers/employee-{$employee->id}/{$subfolder}/{$filename}";
+        // Store file in private disk
+        $path = $file->storeAs($fullPath, $filename, 'private');
 
-        return $file->storeAs($path, $filename, 'private');
-    }
-
-    /**
-     * Calculate certificate status based on expiry date
-     */
-    private function calculateCertificateStatus($expiryDate)
-    {
-        if (!$expiryDate) {
-            return 'active';
-        }
-
-        $expiry = Carbon::parse($expiryDate);
-        $now = Carbon::now();
-
-        if ($expiry->isPast()) {
-            return 'expired';
-        } elseif ($expiry->diffInDays($now) <= 30) {
-            return 'expiring_soon';
-        } else {
-            return 'active';
-        }
-    }
-
-    /**
-     * Get container status for grid view
-     */
-    private function getContainerStatus(Employee $employee)
-    {
-        if ($employee->total_files_count === 0) {
-            return 'empty';
-        } elseif ($employee->active_certificates > 0 && $employee->background_check_status === 'completed') {
-            return 'complete';
-        } elseif ($employee->total_certificates > 0 || !empty($employee->background_check_files)) {
-            return 'partial';
-        } else {
-            return 'empty';
-        }
-    }
-
-    /**
-     * Get container status color for UI
-     */
-    private function getContainerStatusColor(Employee $employee)
-    {
-        switch ($this->getContainerStatus($employee)) {
-            case 'complete':
-                return 'green';
-            case 'partial':
-                return 'yellow';
-            case 'empty':
-                return 'gray';
-            default:
-                return 'gray';
-        }
-    }
-
-    /**
-     * Get overall container statistics
-     */
-    private function getContainerStats()
-    {
         return [
-            'total_containers' => Employee::whereNotNull('container_created_at')->count(),
-            'containers_with_files' => Employee::where('total_files_count', '>', 0)->count(),
-            'total_certificates' => EmployeeCertificate::count(),
-            'total_files' => Employee::sum('total_files_count'),
-            'active_certificates' => EmployeeCertificate::where('status', 'active')->count(),
-            'employees_with_bg_check' => Employee::whereNotNull('background_check_files')->count(),
+            'path' => $path,
+            'original_name' => $file->getClientOriginalName(),
+            'filename' => $filename,
+            'size' => $file->getSize(),
+            'type' => $file->getMimeType(),
+            'uploaded_at' => now()->toISOString(),
+            'uploaded_by' => auth()->user()->name ?? 'system'
         ];
     }
 }

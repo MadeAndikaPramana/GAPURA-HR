@@ -1,270 +1,235 @@
 <?php
-// app/Http/Controllers/EmployeeController.php - Simple Show Method
+// app/Http/Controllers/EmployeeController.php - Complete SDM Module
 
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
+use App\Models\Department;
+use App\Imports\EmployeesImport;
+use App\Exports\EmployeesExport;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 
 class EmployeeController extends Controller
 {
     /**
-     * Display the specified employee
-     *
-     * @param Employee $employee
-     * @return \Inertia\Response
-     */
-    public function show(Employee $employee)
-    {
-        try {
-            // Load basic relationships if they exist
-            $relations = ['department'];
-
-            // Only load relationships that exist
-            if (method_exists($employee, 'employeeCertificates')) {
-                $relations[] = 'employeeCertificates';
-            }
-
-            $employee->load($relations);
-
-            return Inertia::render('Employees/Show', [
-                'employee' => [
-                    'id' => $employee->id,
-                    'name' => $employee->name,
-                    'nip' => $employee->nip ?? $employee->employee_id,
-                    'position' => $employee->position,
-                    'status' => $employee->status ?? 'active',
-                    'hire_date' => $employee->hire_date?->format('Y-m-d'),
-                    'department' => $employee->department ? [
-                        'id' => $employee->department->id,
-                        'name' => $employee->department->name,
-                        'code' => $employee->department->code ?? null,
-                    ] : null,
-                    'certificates_count' => $employee->employeeCertificates?->count() ?? 0,
-                    'background_check_status' => $employee->background_check_status ?? 'not_started',
-                    'background_check_date' => $employee->background_check_date?->format('Y-m-d'),
-                    'created_at' => $employee->created_at->format('Y-m-d H:i:s'),
-                    'updated_at' => $employee->updated_at->format('Y-m-d H:i:s'),
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            // Fallback untuk debugging
-            return Inertia::render('Employees/Show', [
-                'employee' => [
-                    'id' => $employee->id,
-                    'name' => $employee->name ?? 'Unknown',
-                    'nip' => $employee->nip ?? $employee->employee_id ?? 'N/A',
-                    'position' => $employee->position ?? 'Unknown',
-                    'status' => $employee->status ?? 'active',
-                    'hire_date' => null,
-                    'department' => null,
-                    'certificates_count' => 0,
-                    'background_check_status' => 'not_started',
-                    'background_check_date' => null,
-                    'created_at' => $employee->created_at->format('Y-m-d H:i:s'),
-                    'updated_at' => $employee->updated_at->format('Y-m-d H:i:s'),
-                ],
-                'error' => 'Some data could not be loaded: ' . $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Display a listing of employees
+     * Display employees index (SDM management page)
      */
     public function index(Request $request)
     {
-        try {
-            $query = Employee::query();
-
-            // Add search if provided
-            if ($request->filled('search')) {
-                $search = $request->get('search');
-                $query->where(function ($q) use ($search) {
-                    $q->where('name', 'LIKE', "%{$search}%")
-                      ->orWhere('nip', 'LIKE', "%{$search}%")
-                      ->orWhere('employee_id', 'LIKE', "%{$search}%");
-                });
-            }
-
-            // Add status filter if provided
-            if ($request->filled('status')) {
-                $query->where('status', $request->get('status'));
-            }
-
-            // Load relationships if they exist
-            $relations = [];
-            if (method_exists(Employee::class, 'department')) {
-                $relations[] = 'department';
-            }
-
-            if (!empty($relations)) {
-                $query->with($relations);
-            }
-
-            $employees = $query->latest()->paginate(15);
-
-            return Inertia::render('Employees/Index', [
-                'employees' => $employees,
-                'filters' => $request->only(['search', 'status']),
-                'departments' => $this->getDepartments(),
+        $query = Employee::with(['department'])
+            ->withCount([
+                'employeeCertificates as total_certificates',
+                'employeeCertificates as active_certificates' => function($q) {
+                    $q->where('status', 'active');
+                },
+                'employeeCertificates as expired_certificates' => function($q) {
+                    $q->where('status', 'expired');
+                }
             ]);
 
-        } catch (\Exception $e) {
-            return Inertia::render('Employees/Index', [
-                'employees' => ['data' => [], 'total' => 0],
-                'filters' => [],
-                'departments' => [],
-                'error' => 'Could not load employees: ' . $e->getMessage()
-            ]);
+        // Search functionality
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_id', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('position', 'like', "%{$search}%");
+            });
         }
+
+        // Department filter
+        if ($request->filled('department')) {
+            $query->where('department_id', $request->department);
+        }
+
+        // Status filter
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // Sort
+        $sortField = $request->get('sort', 'name');
+        $sortDirection = $request->get('direction', 'asc');
+        $query->orderBy($sortField, $sortDirection);
+
+        $employees = $query->paginate(20);
+
+        // Get statistics
+        $statistics = [
+            'total_employees' => Employee::count(),
+            'active_employees' => Employee::where('status', 'active')->count(),
+            'inactive_employees' => Employee::where('status', 'inactive')->count(),
+            'employees_with_containers' => Employee::has('employeeCertificates')->count(),
+            'latest_additions' => Employee::latest()->take(5)->get(['name', 'employee_id', 'created_at'])
+        ];
+
+        return Inertia::render('Employees/Index', [
+            'employees' => $employees,
+            'departments' => Department::all(['id', 'name']),
+            'statistics' => $statistics,
+            'filters' => $request->only(['search', 'department', 'status', 'sort', 'direction'])
+        ]);
     }
 
     /**
-     * Show the form for creating a new employee
+     * Show create employee form
      */
     public function create()
     {
         return Inertia::render('Employees/Create', [
-            'departments' => $this->getDepartments(),
+            'departments' => Department::all(['id', 'name'])
         ]);
     }
 
     /**
-     * Store a newly created employee
+     * Store new employee
      */
     public function store(Request $request)
     {
         $request->validate([
+            'employee_id' => 'required|string|max:20|unique:employees',
             'name' => 'required|string|max:255',
-            'nip' => 'nullable|string|unique:employees,nip',
-            'employee_id' => 'nullable|string|unique:employees,employee_id',
-            'position' => 'nullable|string|max:255',
+            'email' => 'nullable|email|unique:employees',
+            'phone' => 'nullable|string|max:20',
             'department_id' => 'nullable|exists:departments,id',
-            'status' => 'nullable|in:active,inactive',
+            'position' => 'nullable|string|max:100',
+            'hire_date' => 'nullable|date',
+            'status' => 'required|in:active,inactive'
         ]);
 
-        try {
-            $employee = Employee::create([
-                'name' => $request->name,
-                'nip' => $request->nip ?? $request->employee_id,
-                'employee_id' => $request->employee_id ?? $request->nip,
-                'position' => $request->position,
-                'department_id' => $request->department_id,
-                'status' => $request->status ?? 'active',
-                'hire_date' => $request->hire_date ? now()->parse($request->hire_date) : now(),
-            ]);
+        $employee = Employee::create($request->all());
 
-            return redirect()->route('employees.show', $employee)
-                           ->with('success', 'Employee created successfully.');
+        // Auto-create container for this employee
+        // (Container is automatically available through the relationship)
 
-        } catch (\Exception $e) {
-            return back()->withInput()->withErrors([
-                'error' => 'Could not create employee: ' . $e->getMessage()
-            ]);
-        }
+        return redirect()->route('employees.index')
+            ->with('success', "Employee {$employee->name} created successfully. Container ready!");
     }
 
     /**
-     * Show the form for editing the employee
+     * Show edit employee form
      */
     public function edit(Employee $employee)
     {
         return Inertia::render('Employees/Edit', [
-            'employee' => $employee,
-            'departments' => $this->getDepartments(),
+            'employee' => $employee->load('department'),
+            'departments' => Department::all(['id', 'name'])
         ]);
     }
 
     /**
-     * Update the specified employee
+     * Update employee
      */
     public function update(Request $request, Employee $employee)
     {
         $request->validate([
+            'employee_id' => 'required|string|max:20|unique:employees,employee_id,' . $employee->id,
             'name' => 'required|string|max:255',
-            'nip' => 'nullable|string|unique:employees,nip,' . $employee->id,
-            'employee_id' => 'nullable|string|unique:employees,employee_id,' . $employee->id,
-            'position' => 'nullable|string|max:255',
+            'email' => 'nullable|email|unique:employees,email,' . $employee->id,
+            'phone' => 'nullable|string|max:20',
             'department_id' => 'nullable|exists:departments,id',
-            'status' => 'nullable|in:active,inactive',
+            'position' => 'nullable|string|max:100',
+            'hire_date' => 'nullable|date',
+            'status' => 'required|in:active,inactive'
         ]);
 
-        try {
-            $employee->update([
-                'name' => $request->name,
-                'nip' => $request->nip ?? $request->employee_id,
-                'employee_id' => $request->employee_id ?? $request->nip,
-                'position' => $request->position,
-                'department_id' => $request->department_id,
-                'status' => $request->status ?? 'active',
-            ]);
+        $employee->update($request->all());
 
-            return redirect()->route('employees.show', $employee)
-                           ->with('success', 'Employee updated successfully.');
-
-        } catch (\Exception $e) {
-            return back()->withInput()->withErrors([
-                'error' => 'Could not update employee: ' . $e->getMessage()
-            ]);
-        }
+        return redirect()->route('employees.index')
+            ->with('success', "Employee {$employee->name} updated successfully.");
     }
 
     /**
-     * Remove the specified employee
+     * Delete employee
      */
     public function destroy(Employee $employee)
     {
-        try {
-            $employee->delete();
+        // Check if employee has certificates or files
+        $certificateCount = $employee->employeeCertificates()->count();
+        $hasFiles = !empty($employee->background_check_files);
 
-            return redirect()->route('employees.index')
-                           ->with('success', 'Employee deleted successfully.');
-
-        } catch (\Exception $e) {
-            return back()->withErrors([
-                'error' => 'Could not delete employee: ' . $e->getMessage()
-            ]);
+        if ($certificateCount > 0 || $hasFiles) {
+            return back()->with('error',
+                "Cannot delete {$employee->name}. Employee has {$certificateCount} certificates or uploaded files. Please remove them first."
+            );
         }
+
+        $name = $employee->name;
+        $employee->delete();
+
+        return redirect()->route('employees.index')
+            ->with('success', "Employee {$name} deleted successfully.");
     }
 
     /**
-     * Handle bulk actions
+     * Show Excel import page
      */
-    public function bulkAction(Request $request)
+    public function showImport()
+    {
+        return Inertia::render('Employees/Import', [
+            'departments' => Department::all(['id', 'name', 'code']),
+            'importHistory' => $this->getRecentImports()
+        ]);
+    }
+
+    /**
+     * Download Excel template
+     */
+    public function downloadTemplate()
+    {
+        $templatePath = resource_path('templates/employee_import_template.xlsx');
+
+        if (!file_exists($templatePath)) {
+            // Create basic template on the fly
+            return $this->createExcelTemplate();
+        }
+
+        return response()->download($templatePath, 'employee_import_template.xlsx');
+    }
+
+    /**
+     * Import employees from Excel
+     */
+    public function import(Request $request)
     {
         $request->validate([
-            'action' => 'required|in:delete,activate,deactivate',
-            'employee_ids' => 'required|array',
-            'employee_ids.*' => 'exists:employees,id',
+            'excel_file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // 10MB
+            'update_existing' => 'boolean',
+            'create_departments' => 'boolean'
         ]);
 
         try {
-            $employees = Employee::whereIn('id', $request->employee_ids);
+            $file = $request->file('excel_file');
+            $updateExisting = $request->boolean('update_existing', false);
 
-            switch ($request->action) {
-                case 'delete':
-                    $employees->delete();
-                    $message = 'Selected employees deleted successfully.';
-                    break;
-                case 'activate':
-                    $employees->update(['status' => 'active']);
-                    $message = 'Selected employees activated successfully.';
-                    break;
-                case 'deactivate':
-                    $employees->update(['status' => 'inactive']);
-                    $message = 'Selected employees deactivated successfully.';
-                    break;
-            }
+            // Store file temporarily
+            $filePath = $file->store('temp/imports');
+            $fullPath = Storage::path($filePath);
 
-            return back()->with('success', $message);
+            // Import using our custom import class
+            $import = new EmployeesImport($updateExisting);
+            Excel::import($import, $fullPath);
+
+            // Get import results
+            $results = $import->getImportResults();
+
+            // Clean up temp file
+            Storage::delete($filePath);
+
+            // Log import activity
+            $this->logImportActivity($request, $results);
+
+            return back()->with('success',
+                "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}"
+            )->with('import_results', $results);
 
         } catch (\Exception $e) {
-            return back()->withErrors([
-                'error' => 'Could not perform bulk action: ' . $e->getMessage()
-            ]);
+            return back()->with('error', 'Import failed: ' . $e->getMessage());
         }
     }
 
@@ -273,82 +238,146 @@ class EmployeeController extends Controller
      */
     public function export(Request $request)
     {
-        try {
-            // Simple CSV export
-            $employees = Employee::all();
+        $filters = $request->only(['department', 'status', 'search']);
+        $includeCertificates = $request->boolean('include_certificates', false);
 
-            $headers = [
-                'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="employees_' . date('Y-m-d') . '.csv"',
-            ];
+        $filename = 'employees_export_' . date('Y-m-d_His') . '.xlsx';
 
-            $callback = function() use ($employees) {
-                $handle = fopen('php://output', 'w');
-                fputcsv($handle, ['ID', 'Name', 'NIP', 'Position', 'Status', 'Created At']);
+        return Excel::download(
+            new EmployeesExport($filters, $includeCertificates),
+            $filename
+        );
+    }
 
-                foreach ($employees as $employee) {
-                    fputcsv($handle, [
-                        $employee->id,
-                        $employee->name,
-                        $employee->nip ?? $employee->employee_id,
-                        $employee->position,
-                        $employee->status,
-                        $employee->created_at->format('Y-m-d H:i:s'),
-                    ]);
+    /**
+     * Bulk actions for multiple employees
+     */
+    public function bulkAction(Request $request)
+    {
+        $request->validate([
+            'action' => 'required|in:activate,deactivate,delete,export,assign_department',
+            'employee_ids' => 'required|array',
+            'employee_ids.*' => 'exists:employees,id',
+            'department_id' => 'nullable|exists:departments,id'
+        ]);
+
+        $employees = Employee::whereIn('id', $request->employee_ids);
+        $count = $employees->count();
+
+        switch ($request->action) {
+            case 'activate':
+                $employees->update(['status' => 'active']);
+                return back()->with('success', "{$count} employees activated successfully.");
+
+            case 'deactivate':
+                $employees->update(['status' => 'inactive']);
+                return back()->with('success', "{$count} employees deactivated successfully.");
+
+            case 'assign_department':
+                if (!$request->department_id) {
+                    return back()->with('error', 'Please select a department.');
                 }
+                $employees->update(['department_id' => $request->department_id]);
+                return back()->with('success', "{$count} employees moved to new department.");
 
-                fclose($handle);
-            };
+            case 'delete':
+                // Check if any employees have certificates
+                $employeesWithCerts = $employees->has('employeeCertificates')->count();
+                if ($employeesWithCerts > 0) {
+                    return back()->with('error',
+                        "{$employeesWithCerts} employees have certificates and cannot be deleted."
+                    );
+                }
+                $employees->delete();
+                return back()->with('success', "{$count} employees deleted successfully.");
 
-            return response()->stream($callback, 200, $headers);
-
-        } catch (\Exception $e) {
-            return back()->withErrors([
-                'error' => 'Could not export employees: ' . $e->getMessage()
-            ]);
+            case 'export':
+                $filters = ['employee_ids' => $request->employee_ids];
+                return Excel::download(
+                    new EmployeesExport($filters),
+                    'selected_employees_' . date('Y-m-d_His') . '.xlsx'
+                );
         }
     }
 
     /**
-     * Search employees
+     * Quick search for AJAX autocomplete
      */
     public function search(Request $request)
     {
-        try {
-            $query = $request->get('q', '');
+        $query = $request->get('q');
 
-            if (empty($query)) {
-                return response()->json([]);
-            }
-
-            $employees = Employee::where(function ($q) use ($query) {
-                $q->where('name', 'LIKE', "%{$query}%")
-                  ->orWhere('nip', 'LIKE', "%{$query}%")
-                  ->orWhere('employee_id', 'LIKE', "%{$query}%");
-            })
-            ->select(['id', 'name', 'nip', 'employee_id', 'position'])
-            ->limit(10)
-            ->get();
-
-            return response()->json($employees);
-
-        } catch (\Exception $e) {
+        if (strlen($query) < 2) {
             return response()->json([]);
         }
+
+        $employees = Employee::where('name', 'like', "%{$query}%")
+            ->orWhere('employee_id', 'like', "%{$query}%")
+            ->limit(10)
+            ->get(['id', 'employee_id', 'name', 'position', 'department_id'])
+            ->load('department:id,name');
+
+        return response()->json($employees);
+    }
+
+    // ===== PRIVATE HELPER METHODS =====
+
+    /**
+     * Create basic Excel template
+     */
+    private function createExcelTemplate()
+    {
+        return Excel::download(new class implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
+            public function array(): array
+            {
+                return [
+                    ['EMP001', 'John Doe', 'john@example.com', '081234567890', 'IT', 'Senior Developer', '2024-01-15', 'active'],
+                    ['EMP002', 'Jane Smith', 'jane@example.com', '081234567891', 'HR', 'HR Manager', '2024-02-01', 'active'],
+                ];
+            }
+
+            public function headings(): array
+            {
+                return ['employee_id', 'name', 'email', 'phone', 'department', 'position', 'hire_date', 'status'];
+            }
+        }, 'employee_import_template.xlsx');
     }
 
     /**
-     * Get departments for dropdowns
+     * Get recent import history
      */
-    private function getDepartments()
+    private function getRecentImports()
     {
-        try {
-            if (class_exists('App\Models\Department')) {
-                return \App\Models\Department::orderBy('name')->get(['id', 'name', 'code']);
-            }
-            return [];
-        } catch (\Exception $e) {
-            return [];
-        }
+        // This could be stored in a separate imports log table
+        // For now, return mock data
+        return [
+            [
+                'date' => now()->subDays(1)->format('Y-m-d H:i'),
+                'file' => 'employees_jan_2024.xlsx',
+                'created' => 25,
+                'updated' => 5,
+                'errors' => 0
+            ],
+            [
+                'date' => now()->subDays(7)->format('Y-m-d H:i'),
+                'file' => 'mpga_training_data.xlsx',
+                'created' => 156,
+                'updated' => 23,
+                'errors' => 2
+            ]
+        ];
+    }
+
+    /**
+     * Log import activity for audit trail
+     */
+    private function logImportActivity($request, $results)
+    {
+        \Illuminate\Support\Facades\Log::info('Employee Excel Import', [
+            'user_id' => auth()->id(),
+            'filename' => $request->file('excel_file')->getClientOriginalName(),
+            'results' => $results,
+            'timestamp' => now()
+        ]);
     }
 }

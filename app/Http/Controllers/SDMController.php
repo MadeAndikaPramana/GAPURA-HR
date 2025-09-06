@@ -1,34 +1,49 @@
 <?php
+// app/Http/Controllers/SDMController.php - Clean SDM Controller
 
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
 use App\Models\Department;
+use App\Imports\EmployeesImport;
+use App\Exports\EmployeesExport;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Illuminate\Support\Facades\Storage;
 
-class SdmController extends Controller
+class SDMController extends Controller
 {
     /**
-     * Display employee list for SDM management
+     * Display SDM main page (employee management)
      */
     public function index(Request $request)
     {
         $query = Employee::with(['department'])
-            ->withCount(['employeeCertificates', 'activeCertificates']);
+            ->withCount([
+                'employeeCertificates as total_certificates',
+                'employeeCertificates as active_certificates' => function($q) {
+                    $q->where('status', 'active');
+                },
+                'employeeCertificates as expired_certificates' => function($q) {
+                    $q->where('status', 'expired');
+                }
+            ]);
 
         // Search functionality
         if ($request->filled('search')) {
-            $query->search($request->search);
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('employee_id', 'like', "%{$search}%")
+                  ->orWhere('email', 'like', "%{$search}%")
+                  ->orWhere('position', 'like', "%{$search}%");
+            });
         }
 
         // Department filter
         if ($request->filled('department')) {
-            $query->byDepartment($request->department);
+            $query->where('department_id', $request->department);
         }
 
         // Status filter
@@ -36,348 +51,340 @@ class SdmController extends Controller
             $query->where('status', $request->status);
         }
 
-        $employees = $query->orderBy('name')->paginate(20);
+        // Sort
+        $sortField = $request->get('sort', 'name');
+        $sortDirection = $request->get('direction', 'asc');
+        $query->orderBy($sortField, $sortDirection);
 
-        // Add container status to each employee
-        $employees->getCollection()->transform(function ($employee) {
-            $employee->has_container = !is_null($employee->container_created_at);
-            $employee->files_count = $employee->total_files_count;
-            return $employee;
-        });
+        $employees = $query->paginate(20);
 
-        return Inertia::render('Sdm/Index', [
+        // Get statistics
+        $statistics = [
+            'total_employees' => Employee::count(),
+            'active_employees' => Employee::where('status', 'active')->count(),
+            'inactive_employees' => Employee::where('status', 'inactive')->count(),
+            'employees_with_containers' => Employee::has('employeeCertificates')->count(),
+            'latest_additions' => Employee::latest()->take(5)->get(['name', 'employee_id', 'created_at'])
+        ];
+
+        return Inertia::render('SDM/Index', [
             'employees' => $employees,
-            'departments' => Department::orderBy('name')->get(['id', 'name']),
-            'filters' => $request->only(['search', 'department', 'status']),
-            'stats' => $this->getStats(),
+            'departments' => Department::all(['id', 'name']),
+            'statistics' => $statistics,
+            'filters' => $request->only(['search', 'department', 'status', 'sort', 'direction'])
         ]);
     }
 
     /**
-     * Show form for creating new employee
+     * Show create employee form
      */
     public function create()
     {
-        return Inertia::render('Sdm/Create', [
-            'departments' => Department::orderBy('name')->get(['id', 'name', 'code']),
-            'nextEmployeeId' => $this->generateNextEmployeeId(),
+        return Inertia::render('SDM/Create', [
+            'departments' => Department::all(['id', 'name'])
         ]);
     }
 
     /**
-     * Store new employee (auto-creates container)
+     * Store new employee
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'employee_id' => 'required|string|unique:employees,employee_id|max:20',
-            'nip' => 'nullable|string|unique:employees,nip|max:20',
+        $request->validate([
+            'employee_id' => 'required|string|max:20|unique:employees',
             'name' => 'required|string|max:255',
-            'department_id' => 'required|exists:departments,id',
-            'email' => 'nullable|email|unique:employees,email',
+            'email' => 'nullable|email|unique:employees',
             'phone' => 'nullable|string|max:20',
+            'department_id' => 'nullable|exists:departments,id',
             'position' => 'nullable|string|max:100',
             'hire_date' => 'nullable|date',
-            'status' => 'required|in:active,inactive',
-            'emergency_contact_name' => 'nullable|string|max:255',
-            'emergency_contact_phone' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:500',
-            'notes' => 'nullable|string|max:1000',
+            'status' => 'required|in:active,inactive'
         ]);
 
-        // Create employee (container will be auto-created via model event)
-        $employee = Employee::create(array_merge($validated, [
-            'background_check_status' => 'not_started',
-        ]));
+        $employee = Employee::create($request->all());
 
         return redirect()->route('sdm.index')
-            ->with('success', "Employee {$employee->name} created successfully with digital container.");
+            ->with('success', "Employee {$employee->name} created successfully. Container ready!");
     }
 
     /**
-     * Show form for editing employee
+     * Show edit employee form
      */
     public function edit(Employee $employee)
     {
-        return Inertia::render('Sdm/Edit', [
+        return Inertia::render('SDM/Edit', [
             'employee' => $employee->load('department'),
-            'departments' => Department::orderBy('name')->get(['id', 'name', 'code']),
+            'departments' => Department::all(['id', 'name'])
         ]);
     }
 
     /**
-     * Update employee data
+     * Update employee
      */
     public function update(Request $request, Employee $employee)
     {
-        $validated = $request->validate([
+        $request->validate([
             'employee_id' => 'required|string|max:20|unique:employees,employee_id,' . $employee->id,
-            'nip' => 'nullable|string|max:20|unique:employees,nip,' . $employee->id,
             'name' => 'required|string|max:255',
-            'department_id' => 'required|exists:departments,id',
             'email' => 'nullable|email|unique:employees,email,' . $employee->id,
             'phone' => 'nullable|string|max:20',
+            'department_id' => 'nullable|exists:departments,id',
             'position' => 'nullable|string|max:100',
             'hire_date' => 'nullable|date',
-            'status' => 'required|in:active,inactive',
-            'emergency_contact_name' => 'nullable|string|max:255',
-            'emergency_contact_phone' => 'nullable|string|max:20',
-            'address' => 'nullable|string|max:500',
-            'notes' => 'nullable|string|max:1000',
+            'status' => 'required|in:active,inactive'
         ]);
 
-        // Track NIP changes for history
-        if ($employee->nip !== $validated['nip'] && !empty($validated['nip'])) {
-            // Could implement NIP history tracking here if needed
-        }
-
-        $employee->update($validated);
+        $employee->update($request->all());
 
         return redirect()->route('sdm.index')
             ->with('success', "Employee {$employee->name} updated successfully.");
     }
 
     /**
-     * Delete employee (and container)
+     * Delete employee
      */
     public function destroy(Employee $employee)
     {
         // Check if employee has certificates or files
-        if ($employee->employeeCertificates()->count() > 0 || $employee->total_files_count > 0) {
-            return back()->with('error', 'Cannot delete employee with existing certificates or files. Please clean container first.');
+        $certificateCount = $employee->employeeCertificates()->count();
+        $hasFiles = !empty($employee->background_check_files);
+
+        if ($certificateCount > 0 || $hasFiles) {
+            return back()->with('error',
+                "Cannot delete {$employee->name}. Employee has {$certificateCount} certificates or uploaded files. Please remove them first."
+            );
         }
 
         $name = $employee->name;
         $employee->delete();
 
         return redirect()->route('sdm.index')
-            ->with('success', "Employee {$name} and digital container deleted successfully.");
+            ->with('success', "Employee {$name} deleted successfully.");
     }
 
-    // ===== EXCEL INTEGRATION METHODS =====
-
     /**
-     * Download Excel template for employee data
+     * Show Excel import page
      */
-    public function downloadExcelTemplate()
+    public function showImport()
     {
-        $spreadsheet = new Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-
-        // Set headers
-        $headers = ['NIP', 'NAMA', 'DEPARTEMEN'];
-        $sheet->fromArray($headers, null, 'A1');
-
-        // Add sample data
-        $sampleData = [
-            ['12345', 'John Doe', 'IT'],
-            ['67890', 'Jane Smith', 'HR'],
-            ['11111', 'Bob Wilson', 'Finance']
-        ];
-        $sheet->fromArray($sampleData, null, 'A2');
-
-        // Style the header
-        $sheet->getStyle('A1:C1')->getFont()->setBold(true);
-        $sheet->getStyle('A1:C1')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)
-              ->getStartColor()->setARGB('FFCCCCCC');
-
-        // Auto-size columns
-        foreach (range('A', 'C') as $column) {
-            $sheet->getColumnDimension($column)->setAutoSize(true);
-        }
-
-        // Add instructions
-        $sheet->setCellValue('A6', 'INSTRUKSI:');
-        $sheet->setCellValue('A7', '1. Isi data karyawan mulai dari baris 2');
-        $sheet->setCellValue('A8', '2. NIP harus unik');
-        $sheet->setCellValue('A9', '3. Departemen akan dibuat otomatis jika belum ada');
-        $sheet->setCellValue('A10', '4. Simpan file ini dan upload ke sistem');
-
-        $sheet->getStyle('A6')->getFont()->setBold(true);
-
-        // Create file
-        $fileName = 'template_employee_' . date('Y-m-d') . '.xlsx';
-        $writer = new Xlsx($spreadsheet);
-
-        // Return as download
-        return response()->streamDownload(function() use ($writer) {
-            $writer->save('php://output');
-        }, $fileName, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        return Inertia::render('SDM/Import', [
+            'departments' => Department::all(['id', 'name', 'code']),
+            'importHistory' => $this->getRecentImports()
         ]);
     }
 
     /**
-     * Sync employee data from Excel file
+     * Download Excel template
      */
-    public function syncExcelData(Request $request)
+    public function downloadTemplate()
+    {
+        return $this->createExcelTemplate();
+    }
+
+    /**
+     * Import employees from Excel
+     */
+    public function import(Request $request)
     {
         $request->validate([
-            'excel_file' => 'required|file|mimes:xlsx,xls|max:10240', // 10MB max
+            'excel_file' => 'required|file|mimes:xlsx,xls,csv|max:10240', // 10MB
+            'update_existing' => 'boolean',
+            'create_departments' => 'boolean'
         ]);
 
         try {
             $file = $request->file('excel_file');
-            $reader = \PhpOffice\PhpSpreadsheet\IOFactory::createReader('Xlsx');
-            $spreadsheet = $reader->load($file->getPathname());
-            $worksheet = $spreadsheet->getActiveSheet();
+            $updateExisting = $request->boolean('update_existing', false);
+            $createDepartments = $request->boolean('create_departments', false);
 
-            $rows = $worksheet->toArray();
+            // Store file temporarily
+            $filePath = $file->store('temp/imports');
+            $fullPath = Storage::path($filePath);
 
-            // Skip header row
-            $dataRows = array_slice($rows, 1);
+            // Import using our custom import class
+            $import = new EmployeesImport($updateExisting, $createDepartments);
+            Excel::import($import, $fullPath);
 
-            $results = [
-                'total_processed' => 0,
-                'created' => 0,
-                'updated' => 0,
-                'errors' => [],
-                'details' => []
-            ];
+            // Get import results
+            $results = $import->getImportResults();
 
-            foreach ($dataRows as $index => $row) {
-                $rowNumber = $index + 2; // +2 because we skip header and array is 0-indexed
+            // Clean up temp file
+            Storage::delete($filePath);
 
-                // Skip empty rows
-                if (empty($row[0]) && empty($row[1]) && empty($row[2])) {
-                    continue;
-                }
+            // Log import activity
+            $this->logImportActivity($request, $results);
 
-                try {
-                    $nipData = trim($row[0] ?? '');
-                    $namaData = trim($row[1] ?? '');
-                    $departemenData = trim($row[2] ?? '');
-
-                    // Validate required fields
-                    if (empty($nipData) || empty($namaData) || empty($departemenData)) {
-                        $results['errors'][] = "Row {$rowNumber}: Missing required data (NIP, Nama, or Departemen)";
-                        continue;
-                    }
-
-                    // Process employee data
-                    $result = Employee::createOrUpdateFromExcel($nipData, $namaData, $departemenData);
-
-                    $results['total_processed']++;
-                    $results[$result['action']]++;
-                    $results['details'][] = [
-                        'row' => $rowNumber,
-                        'nip' => $nipData,
-                        'nama' => $namaData,
-                        'departemen' => $departemenData,
-                        'action' => $result['action'],
-                        'employee_id' => $result['employee']->id
-                    ];
-
-                } catch (\Exception $e) {
-                    $results['errors'][] = "Row {$rowNumber}: " . $e->getMessage();
-                }
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => "Excel sync completed. Created: {$results['created']}, Updated: {$results['updated']}",
-                'results' => $results
-            ]);
+            return back()->with('success',
+                "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}"
+            )->with('import_results', $results);
 
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Excel sync failed: ' . $e->getMessage()
-            ], 422);
+            return back()->with('error', 'Import failed: ' . $e->getMessage());
         }
     }
 
     /**
-     * Get sync status (for polling during sync)
+     * Export employees to Excel
      */
-    public function getSyncStatus()
+    public function export(Request $request)
     {
-        // This could be enhanced with job status tracking
-        return response()->json([
-            'status' => 'completed',
-            'progress' => 100
-        ]);
+        $filters = $request->only(['department', 'status', 'search']);
+        $includeCertificates = $request->boolean('include_certificates', false);
+
+        $filename = 'employees_export_' . date('Y-m-d_His') . '.xlsx';
+
+        return Excel::download(
+            new EmployeesExport($filters, $includeCertificates),
+            $filename
+        );
     }
 
-    // ===== SEARCH & API METHODS =====
+    /**
+     * Bulk actions for multiple employees
+     */
+    public function bulkAction(Request $request)
+    {
+        $request->validate([
+            'action' => 'required|in:activate,deactivate,delete,export,assign_department',
+            'employee_ids' => 'required|array',
+            'employee_ids.*' => 'exists:employees,id',
+            'department_id' => 'nullable|exists:departments,id'
+        ]);
+
+        $employees = Employee::whereIn('id', $request->employee_ids);
+        $count = $employees->count();
+
+        switch ($request->action) {
+            case 'activate':
+                $employees->update(['status' => 'active']);
+                return back()->with('success', "{$count} employees activated successfully.");
+
+            case 'deactivate':
+                $employees->update(['status' => 'inactive']);
+                return back()->with('success', "{$count} employees deactivated successfully.");
+
+            case 'assign_department':
+                if (!$request->department_id) {
+                    return back()->with('error', 'Please select a department.');
+                }
+                $employees->update(['department_id' => $request->department_id]);
+                return back()->with('success', "{$count} employees moved to new department.");
+
+            case 'delete':
+                // Check if any employees have certificates
+                $employeesWithCerts = $employees->has('employeeCertificates')->count();
+                if ($employeesWithCerts > 0) {
+                    return back()->with('error',
+                        "{$employeesWithCerts} employees have certificates and cannot be deleted."
+                    );
+                }
+                $employees->delete();
+                return back()->with('success', "{$count} employees deleted successfully.");
+
+            case 'export':
+                $filters = ['employee_ids' => $request->employee_ids];
+                return Excel::download(
+                    new EmployeesExport($filters),
+                    'selected_employees_' . date('Y-m-d_His') . '.xlsx'
+                );
+        }
+    }
 
     /**
-     * Search employees (web interface)
+     * Quick search for AJAX autocomplete
      */
     public function search(Request $request)
     {
-        return $this->index($request);
-    }
-
-    /**
-     * API search for AJAX calls
-     */
-    public function apiSearch(Request $request)
-    {
-        $query = $request->get('q', '');
-        $limit = $request->get('limit', 10);
+        $query = $request->get('q');
 
         if (strlen($query) < 2) {
             return response()->json([]);
         }
 
-        $employees = Employee::search($query)
-            ->with('department')
-            ->limit($limit)
-            ->get(['id', 'employee_id', 'nip', 'name', 'position', 'department_id', 'status']);
+        $employees = Employee::where('name', 'like', "%{$query}%")
+            ->orWhere('employee_id', 'like', "%{$query}%")
+            ->limit(10)
+            ->get(['id', 'employee_id', 'name', 'position', 'department_id'])
+            ->load('department:id,name');
 
         return response()->json($employees);
     }
 
     /**
-     * Quick update employee via API
+     * Get statistics API
      */
-    public function quickUpdate(Request $request, Employee $employee)
+    public function getStatistics()
     {
-        $validated = $request->validate([
-            'field' => 'required|in:status,position,department_id,nip',
-            'value' => 'required'
-        ]);
-
-        // Additional validation based on field
-        if ($validated['field'] === 'department_id') {
-            $request->validate(['value' => 'exists:departments,id']);
-        } elseif ($validated['field'] === 'nip') {
-            $request->validate(['value' => 'unique:employees,nip,' . $employee->id]);
-        }
-
-        $employee->update([$validated['field'] => $validated['value']]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Employee updated successfully',
-            'employee' => $employee->fresh(['department'])
-        ]);
-    }
-
-    // ===== HELPER METHODS =====
-
-    /**
-     * Generate next employee ID
-     */
-    private function generateNextEmployeeId()
-    {
-        $lastEmployee = Employee::orderBy('id', 'desc')->first();
-        $nextId = $lastEmployee ? $lastEmployee->id + 1 : 1;
-        return 'EMP' . str_pad($nextId, 4, '0', STR_PAD_LEFT);
-    }
-
-    /**
-     * Get statistics for SDM dashboard
-     */
-    private function getStats()
-    {
-        return [
+        $statistics = [
             'total_employees' => Employee::count(),
             'active_employees' => Employee::where('status', 'active')->count(),
-            'employees_with_containers' => Employee::whereNotNull('container_created_at')->count(),
+            'inactive_employees' => Employee::where('status', 'inactive')->count(),
+            'employees_with_containers' => Employee::has('employeeCertificates')->count(),
             'departments_count' => Department::count(),
-            'recent_additions' => Employee::where('created_at', '>=', now()->subDays(7))->count(),
+            'latest_additions' => Employee::latest()->take(5)->get(['name', 'employee_id', 'created_at'])
         ];
+
+        return response()->json($statistics);
+    }
+
+    // ===== PRIVATE HELPER METHODS =====
+
+    /**
+     * Create basic Excel template
+     */
+    private function createExcelTemplate()
+    {
+        return Excel::download(new class implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
+            public function array(): array
+            {
+                return [
+                    ['EMP001', 'John Doe', 'john@example.com', '081234567890', 'IT', 'Senior Developer', '2024-01-15', 'active'],
+                    ['EMP002', 'Jane Smith', 'jane@example.com', '081234567891', 'HR', 'HR Manager', '2024-02-01', 'active'],
+                ];
+            }
+
+            public function headings(): array
+            {
+                return ['employee_id', 'name', 'email', 'phone', 'department', 'position', 'hire_date', 'status'];
+            }
+        }, 'employee_import_template.xlsx');
+    }
+
+    /**
+     * Get recent import history
+     */
+    private function getRecentImports()
+    {
+        // This could be stored in a separate imports log table
+        // For now, return mock data
+        return [
+            [
+                'date' => now()->subDays(1)->format('Y-m-d H:i'),
+                'file' => 'employees_jan_2024.xlsx',
+                'created' => 25,
+                'updated' => 5,
+                'errors' => 0
+            ],
+            [
+                'date' => now()->subDays(7)->format('Y-m-d H:i'),
+                'file' => 'mpga_training_data.xlsx',
+                'created' => 156,
+                'updated' => 23,
+                'errors' => 2
+            ]
+        ];
+    }
+
+    /**
+     * Log import activity for audit trail
+     */
+    private function logImportActivity($request, $results)
+    {
+        \Illuminate\Support\Facades\Log::info('SDM Employee Excel Import', [
+            'user_id' => auth()->id(),
+            'filename' => $request->file('excel_file')->getClientOriginalName(),
+            'results' => $results,
+            'timestamp' => now()
+        ]);
     }
 }

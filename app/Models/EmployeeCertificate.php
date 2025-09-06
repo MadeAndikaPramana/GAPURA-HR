@@ -1,36 +1,19 @@
 <?php
+// app/Models/EmployeeCertificate.php
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
 
 class EmployeeCertificate extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
-        'employee_id',
-        'certificate_type_id',
-        'certificate_number',
-        'issue_date',
-        'expiry_date',
-        'completion_date',
-        'training_date',
-        'issuer',
-        'training_provider',
-        'score',
-        'passing_score',
-        'training_hours',
-        'cost',
-        'location',
-        'instructor_name',
-        'status',
-        'notes',
-        'files',
-        'created_by',
-        'updated_by',
+        'employee_id', 'certificate_type_id', 'certificate_number',
+        'issuer', 'training_provider', 'issue_date', 'expiry_date',
+        'completion_date', 'training_date', 'status', 'certificate_files',
+        'training_hours', 'cost', 'score', 'location', 'instructor_name',
+        'notes', 'reminder_sent_at', 'reminder_count', 'created_by_id', 'updated_by_id'
     ];
 
     protected $casts = [
@@ -38,117 +21,98 @@ class EmployeeCertificate extends Model
         'expiry_date' => 'date',
         'completion_date' => 'date',
         'training_date' => 'date',
-        'files' => 'array',
-        'score' => 'decimal:2',
-        'passing_score' => 'decimal:2',
+        'certificate_files' => 'array',
+        'reminder_sent_at' => 'datetime',
         'training_hours' => 'decimal:2',
         'cost' => 'decimal:2',
     ];
 
-    protected $dates = [
-        'issue_date',
-        'expiry_date',
-        'completion_date',
-        'training_date',
-    ];
+    // ===== RELATIONSHIPS =====
 
-    /**
-     * Get the employee that owns the certificate
-     */
     public function employee()
     {
         return $this->belongsTo(Employee::class);
     }
 
-    /**
-     * Get the certificate type
-     */
     public function certificateType()
     {
         return $this->belongsTo(CertificateType::class);
     }
 
-    /**
-     * Get the user who created the certificate
-     */
     public function createdBy()
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by_id');
     }
 
-    /**
-     * Get the user who last updated the certificate
-     */
     public function updatedBy()
     {
-        return $this->belongsTo(User::class, 'updated_by');
+        return $this->belongsTo(User::class, 'updated_by_id');
     }
 
+    // ===== STATUS MANAGEMENT =====
+
     /**
-     * Scope for active certificates
+     * Update certificate status based on dates
      */
+    public function updateStatusBasedOnDates()
+    {
+        if (!$this->expiry_date) {
+            $this->status = $this->completion_date ? 'completed' : 'pending';
+        } else {
+            $now = Carbon::now();
+            $expiryDate = $this->expiry_date;
+
+            // Get warning days from certificate type or use default
+            $warningDays = $this->certificateType->warning_days ?? 90;
+            $warningDate = $expiryDate->subDays($warningDays);
+
+            if ($expiryDate->isPast()) {
+                $this->status = 'expired';
+            } elseif ($now->greaterThanOrEqualTo($warningDate)) {
+                $this->status = 'expiring_soon';
+            } elseif ($this->completion_date) {
+                $this->status = 'active';
+            } else {
+                $this->status = 'pending';
+            }
+        }
+
+        $this->save();
+    }
+
+    // ===== SCOPES =====
+
     public function scopeActive($query)
     {
         return $query->where('status', 'active');
     }
 
-    /**
-     * Scope for expired certificates
-     */
     public function scopeExpired($query)
     {
         return $query->where('status', 'expired');
     }
 
-    /**
-     * Scope for expiring soon certificates
-     */
     public function scopeExpiringSoon($query)
     {
         return $query->where('status', 'expiring_soon');
     }
 
-    /**
-     * Update certificate status based on current date
-     */
-    public function updateStatus()
+    public function scopePending($query)
     {
-        if (!$this->expiry_date) {
-            $this->update(['status' => 'active']);
-            return;
-        }
-
-        $now = Carbon::now();
-        $expiry = Carbon::parse($this->expiry_date);
-        $warningDate = $expiry->copy()->subDays(30); // 30 days warning
-
-        if ($now->gt($expiry)) {
-            $status = 'expired';
-        } elseif ($now->gte($warningDate)) {
-            $status = 'expiring_soon';
-        } else {
-            $status = 'active';
-        }
-
-        $this->update(['status' => $status]);
+        return $query->where('status', 'pending');
     }
 
-    /**
-     * Get days until expiry
-     */
-    public function getDaysUntilExpiryAttribute()
+    public function scopeCompleted($query)
     {
-        if (!$this->expiry_date) {
-            return null;
-        }
-
-        return Carbon::now()->diffInDays(Carbon::parse($this->expiry_date), false);
+        return $query->where('status', 'completed');
     }
+
+    // ===== UTILITY METHODS =====
 
     /**
      * Check if certificate is expired
      */
-    public function getIsExpiredAttribute()
+    public function isExpired()
     {
         return $this->status === 'expired';
     }
@@ -156,7 +120,7 @@ class EmployeeCertificate extends Model
     /**
      * Check if certificate is expiring soon
      */
-    public function getIsExpiringSoonAttribute()
+    public function isExpiringSoon()
     {
         return $this->status === 'expiring_soon';
     }
@@ -164,31 +128,68 @@ class EmployeeCertificate extends Model
     /**
      * Check if certificate is active
      */
-    public function getIsActiveAttribute()
+    public function isActive()
     {
         return $this->status === 'active';
     }
 
     /**
-     * Get status badge color
+     * Get days until expiry
      */
-    public function getStatusColorAttribute()
+    public function getDaysUntilExpiry()
     {
-        return match($this->status) {
-            'active' => 'green',
-            'expiring_soon' => 'yellow',
-            'expired' => 'red',
-            'pending' => 'blue',
-            'cancelled' => 'gray',
-            default => 'gray'
-        };
+        if (!$this->expiry_date) {
+            return null;
+        }
+
+        return Carbon::now()->diffInDays($this->expiry_date, false);
     }
 
     /**
-     * Get files count
+     * Get formatted expiry status
      */
-    public function getFilesCountAttribute()
+    public function getExpiryStatus()
     {
-        return count($this->files ?? []);
+        if (!$this->expiry_date) {
+            return ['status' => 'no_expiry', 'message' => 'No expiry date'];
+        }
+
+        $days = $this->getDaysUntilExpiry();
+
+        if ($days < 0) {
+            return [
+                'status' => 'expired',
+                'message' => 'Expired ' . abs($days) . ' days ago',
+                'color' => 'red'
+            ];
+        } elseif ($days <= 30) {
+            return [
+                'status' => 'expiring_soon',
+                'message' => 'Expires in ' . $days . ' days',
+                'color' => 'yellow'
+            ];
+        } else {
+            return [
+                'status' => 'active',
+                'message' => 'Expires in ' . $days . ' days',
+                'color' => 'green'
+            ];
+        }
+    }
+
+    /**
+     * Get certificate file count
+     */
+    public function getFileCount()
+    {
+        return count($this->certificate_files ?? []);
+    }
+
+    /**
+     * Check if certificate has files
+     */
+    public function hasFiles()
+    {
+        return !empty($this->certificate_files);
     }
 }

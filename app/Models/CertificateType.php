@@ -1,28 +1,16 @@
 <?php
+// app/Models/CertificateType.php
+
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CertificateType extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
-        'name',
-        'code',
-        'category',
-        'validity_months',
-        'warning_days',
-        'is_mandatory',
-        'is_recurrent',
-        'description',
-        'requirements',
-        'learning_objectives',
-        'is_active',
-        'estimated_cost',
-        'estimated_duration_hours'
+        'name', 'code', 'category', 'validity_months', 'warning_days',
+        'is_mandatory', 'is_recurrent', 'description', 'requirements',
+        'learning_objectives', 'is_active', 'estimated_cost', 'estimated_duration_hours'
     ];
 
     protected $casts = [
@@ -30,84 +18,14 @@ class CertificateType extends Model
         'is_recurrent' => 'boolean',
         'is_active' => 'boolean',
         'estimated_cost' => 'decimal:2',
-        'estimated_duration_hours' => 'decimal:2'
+        'estimated_duration_hours' => 'decimal:2',
     ];
 
     // ===== RELATIONSHIPS =====
 
-    public function employeeCertificates(): HasMany
+    public function employeeCertificates()
     {
         return $this->hasMany(EmployeeCertificate::class);
-    }
-
-    public function activeCertificates(): HasMany
-    {
-        return $this->hasMany(EmployeeCertificate::class)->where('status', 'active');
-    }
-
-    // ===== TRAINING TYPE CONTAINER METHODS =====
-
-    /**
-     * Get employees who have this certificate type
-     */
-    public function getEmployeesWithCertificate()
-    {
-        return Employee::whereHas('employeeCertificates', function($query) {
-            $query->where('certificate_type_id', $this->id);
-        })->with(['department', 'employeeCertificates' => function($query) {
-            $query->where('certificate_type_id', $this->id)
-                  ->orderBy('issue_date', 'desc');
-        }])->get();
-    }
-
-    /**
-     * Get certificate statistics for this type
-     */
-    public function getCertificateStats()
-    {
-        $certificates = $this->employeeCertificates;
-
-        return [
-            'total_certificates' => $certificates->count(),
-            'active_certificates' => $certificates->where('status', 'active')->count(),
-            'expired_certificates' => $certificates->where('status', 'expired')->count(),
-            'expiring_soon' => $certificates->where('status', 'expiring_soon')->count(),
-            'unique_employees' => $certificates->pluck('employee_id')->unique()->count(),
-            'recent_certificates' => $certificates->sortByDesc('created_at')->take(5)
-        ];
-    }
-
-    /**
-     * Get training type container data (reverse lookup)
-     */
-    public function getContainerData()
-    {
-        $employees = $this->getEmployeesWithCertificate();
-        $stats = $this->getCertificateStats();
-
-        // Group by status
-        $employeesByStatus = [];
-        foreach ($employees as $employee) {
-            $latestCert = $employee->employeeCertificates->first();
-            $status = $latestCert ? $latestCert->status : 'none';
-
-            if (!isset($employeesByStatus[$status])) {
-                $employeesByStatus[$status] = [];
-            }
-
-            $employeesByStatus[$status][] = [
-                'employee' => $employee,
-                'latest_certificate' => $latestCert,
-                'certificate_count' => $employee->employeeCertificates->count()
-            ];
-        }
-
-        return [
-            'certificate_type' => $this,
-            'statistics' => $stats,
-            'employees_by_status' => $employeesByStatus,
-            'total_employees' => $employees->count()
-        ];
     }
 
     // ===== SCOPES =====
@@ -117,13 +35,94 @@ class CertificateType extends Model
         return $query->where('is_active', true);
     }
 
+    public function scopeMandatory($query)
+    {
+        return $query->where('is_mandatory', true);
+    }
+
+    public function scopeRecurrent($query)
+    {
+        return $query->where('is_recurrent', true);
+    }
+
     public function scopeByCategory($query, $category)
     {
         return $query->where('category', $category);
     }
 
-    public function scopeMandatory($query)
+    // ===== UTILITY METHODS =====
+
+    /**
+     * Get active certificates count for this type
+     */
+    public function getActiveCertificatesCount()
     {
-        return $query->where('is_mandatory', true);
+        return $this->employeeCertificates()->where('status', 'active')->count();
+    }
+
+    /**
+     * Get expired certificates count for this type
+     */
+    public function getExpiredCertificatesCount()
+    {
+        return $this->employeeCertificates()->where('status', 'expired')->count();
+    }
+
+    /**
+     * Get expiring soon certificates count for this type
+     */
+    public function getExpiringSoonCertificatesCount()
+    {
+        return $this->employeeCertificates()->where('status', 'expiring_soon')->count();
+    }
+
+    /**
+     * Get total certificates count for this type
+     */
+    public function getTotalCertificatesCount()
+    {
+        return $this->employeeCertificates()->count();
+    }
+
+    /**
+     * Get employees who have this certificate type
+     */
+    public function getEmployeesWithCertificate()
+    {
+        return Employee::whereHas('employeeCertificates', function($query) {
+            $query->where('certificate_type_id', $this->id);
+        })->get();
+    }
+
+    /**
+     * Check if certificate type is required
+     */
+    public function isRequired()
+    {
+        return $this->is_mandatory;
+    }
+
+    /**
+     * Check if certificate type can be renewed
+     */
+    public function canBeRenewed()
+    {
+        return $this->is_recurrent;
+    }
+
+    /**
+     * Get validity period in days
+     */
+    public function getValidityInDays()
+    {
+        return $this->validity_months ? $this->validity_months * 30 : null;
+    }
+
+    /**
+     * Get warning period in days
+     */
+    public function getWarningDays()
+    {
+        return $this->warning_days ?? 90;
     }
 }
