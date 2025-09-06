@@ -1,16 +1,15 @@
 <?php
-// routes/web.php - Complete updated routes
+// routes/web.php - Fixed Employee Container System Routes
 
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EmployeeContainerController;
 use App\Http\Controllers\CertificateStatusController;
 use App\Http\Controllers\DepartmentController;
-use App\Http\Controllers\TrainingTypeController; // ADD THIS
+use App\Http\Controllers\CertificateTypeController;
 use App\Http\Controllers\SDMController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -26,21 +25,72 @@ require __DIR__.'/auth.php';
 */
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // Dashboard
+    // Dashboard - redirect to employee containers
     Route::get('/', function () {
-        return redirect()->route('dashboard');
+        return redirect()->route('employee-containers.index');
     });
 
     Route::get('/dashboard', function () {
-        return Inertia::render('Dashboard');
+        return redirect()->route('employee-containers.index');
     })->name('dashboard');
 
     /*
     |--------------------------------------------------------------------------
-    | SDM MODULE ROUTES (Clean Structure)
+    | EMPLOYEE CONTAINERS ROUTES (Main Feature) - PRIMARY
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('employee-containers')->name('employee-containers.')->group(function () {
+
+        // Main container list page (Grid View)
+        Route::get('/', [EmployeeContainerController::class, 'index'])->name('index');
+
+        // Individual container view (Digital folder)
+        Route::get('/{employee}', [EmployeeContainerController::class, 'show'])->name('show');
+
+        // Background Check Operations
+        Route::post('/{employee}/background-check/upload', [EmployeeContainerController::class, 'uploadBackgroundCheckFiles'])
+             ->name('background-check.upload');
+
+        Route::get('/{employee}/background-check/download/{fileIndex}', [EmployeeContainerController::class, 'downloadBackgroundCheckFile'])
+             ->name('background-check.download');
+
+        Route::put('/{employee}/background-check', [EmployeeContainerController::class, 'updateBackgroundCheck'])
+             ->name('background-check.update');
+
+        Route::delete('/{employee}/background-check/{fileIndex}', [EmployeeContainerController::class, 'deleteBackgroundCheckFile'])
+             ->name('background-check.delete');
+
+        // Certificate Operations within Containers
+        Route::post('/{employee}/certificates', [EmployeeContainerController::class, 'storeCertificate'])
+             ->name('certificates.store');
+
+        Route::put('/{employee}/certificates/{certificate}', [EmployeeContainerController::class, 'updateCertificate'])
+             ->name('certificates.update');
+
+        Route::delete('/{employee}/certificates/{certificate}', [EmployeeContainerController::class, 'deleteCertificate'])
+             ->name('certificates.destroy');
+
+        Route::get('/{employee}/certificates/{certificate}/download/{fileIndex}', [EmployeeContainerController::class, 'downloadCertificateFile'])
+             ->name('certificates.download');
+
+        // Bulk operations for containers
+        Route::post('/bulk-update-status', [EmployeeContainerController::class, 'bulkUpdateCertificateStatus'])
+             ->name('bulk-update-status');
+
+        // Search and filter containers
+        Route::get('/search', [EmployeeContainerController::class, 'search'])->name('search');
+
+        // Export container data
+        Route::get('/export', [EmployeeContainerController::class, 'exportContainers'])->name('export');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | SDM MODULE ROUTES (Employee Master Data Management)
     |--------------------------------------------------------------------------
     */
     Route::prefix('sdm')->name('sdm.')->group(function () {
+
         // Basic CRUD Operations
         Route::get('/', [SDMController::class, 'index'])->name('index');
         Route::get('/create', [SDMController::class, 'create'])->name('create');
@@ -65,81 +115,40 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | EMPLOYEE CONTAINERS ROUTES (Main Feature)
+    | EMPLOYEES ROUTES (Legacy/Admin CRUD) - SECONDARY
     |--------------------------------------------------------------------------
     */
-    Route::prefix('employee-containers')->name('employee-containers.')->group(function () {
-        // Main container list page
-        Route::get('/', [EmployeeContainerController::class, 'index'])->name('index');
+    Route::prefix('employees')->name('employees.')->group(function () {
+        // Admin CRUD operations for employees (if needed)
+        Route::get('/admin', [EmployeeController::class, 'index'])->name('admin.index');
+        Route::get('/admin/create', [EmployeeController::class, 'create'])->name('admin.create');
+        Route::post('/admin', [EmployeeController::class, 'store'])->name('admin.store');
+        Route::get('/admin/{employee}/edit', [EmployeeController::class, 'edit'])->name('admin.edit');
+        Route::put('/admin/{employee}', [EmployeeController::class, 'update'])->name('admin.update');
+        Route::delete('/admin/{employee}', [EmployeeController::class, 'destroy'])->name('admin.destroy');
 
-        // Individual container view (digital folder)
-        Route::get('/{employee}', [EmployeeContainerController::class, 'show'])->name('show');
-
-        // Background Check Operations
-        Route::post('/{employee}/background-check/upload', [EmployeeContainerController::class, 'uploadBackgroundCheckFiles'])
-             ->name('background-check.upload');
-
-        Route::get('/{employee}/background-check/download/{fileIndex}', [EmployeeContainerController::class, 'downloadBackgroundCheckFile'])
-             ->name('background-check.download');
-
-        Route::put('/{employee}/background-check', [EmployeeContainerController::class, 'updateBackgroundCheck'])
-             ->name('background-check.update');
-
-        // Certificate Operations within Containers
-        Route::post('/{employee}/certificates', [EmployeeContainerController::class, 'storeCertificate'])
-             ->name('certificates.store');
-
-        Route::put('/{employee}/certificates/{certificate}', [EmployeeContainerController::class, 'updateCertificate'])
-             ->name('certificates.update');
-
-        Route::delete('/{employee}/certificates/{certificate}', [EmployeeContainerController::class, 'deleteCertificate'])
-             ->name('certificates.destroy');
-
-        Route::get('/certificates/{certificate}/download/{fileIndex}', [EmployeeContainerController::class, 'downloadCertificateFile'])
-             ->name('certificates.download');
+        // Export and utility operations
+        Route::post('/admin/bulk-action', [EmployeeController::class, 'bulkAction'])->name('admin.bulk-action');
+        Route::get('/admin/export', [EmployeeController::class, 'export'])->name('admin.export');
+        Route::get('/admin/search', [EmployeeController::class, 'search'])->name('admin.search');
     });
 
     /*
     |--------------------------------------------------------------------------
-    | TRAINING TYPES MANAGEMENT (Certificate Type Reverse Lookup) - NEW
+    | CERTIFICATE TYPES MANAGEMENT (Training Type)
     |--------------------------------------------------------------------------
     */
-    Route::prefix('training-types')->name('training-types.')->middleware(['auth', 'verified'])->group(function () {
+    Route::prefix('certificate-types')->name('certificate-types.')->group(function () {
+        Route::get('/', [CertificateTypeController::class, 'index'])->name('index');
+        Route::get('/create', [CertificateTypeController::class, 'create'])->name('create');
+        Route::post('/', [CertificateTypeController::class, 'store'])->name('store');
+        Route::get('/{certificateType}/edit', [CertificateTypeController::class, 'edit'])->name('edit');
+        Route::put('/{certificateType}', [CertificateTypeController::class, 'update'])->name('update');
+        Route::delete('/{certificateType}', [CertificateTypeController::class, 'destroy'])->name('destroy');
 
-    // Basic CRUD Operations
-    Route::get('/', [TrainingTypeController::class, 'index'])->name('index');
-    Route::get('/create', [TrainingTypeController::class, 'create'])->name('create');
-    Route::post('/', [TrainingTypeController::class, 'store'])->name('store');
-    Route::get('/{certificateType}/edit', [TrainingTypeController::class, 'edit'])->name('edit');
-    Route::put('/{certificateType}', [TrainingTypeController::class, 'update'])->name('update');
-    Route::delete('/{certificateType}', [TrainingTypeController::class, 'destroy'])->name('destroy');
-
-    // Training Type Container (Reverse Lookup - "certificate jenis ini dimiliki siapa saja")
-    Route::get('/{certificateType}/container', [TrainingTypeController::class, 'showContainer'])->name('container');
-
-    // API Routes for AJAX/Dynamic Loading
-    Route::get('/{certificateType}/employees', [TrainingTypeController::class, 'getEmployeesList'])->name('employees-list');
-    Route::get('/{certificateType}/stats', [TrainingTypeController::class, 'getContainerStats'])->name('stats');
-    Route::get('/search', [TrainingTypeController::class, 'search'])->name('search');
-});
-    /*
-    |--------------------------------------------------------------------------
-    | EMPLOYEES MANAGEMENT ROUTES (Admin/CRUD Operations) - LEGACY SUPPORT
-    |--------------------------------------------------------------------------
-    */
-    Route::prefix('employees')->name('employees.')->group(function () {
-        // Basic employee CRUD (admin operations)
-        Route::get('/', [EmployeeController::class, 'index'])->name('index');
-        Route::get('/create', [EmployeeController::class, 'create'])->name('create');
-        Route::post('/', [EmployeeController::class, 'store'])->name('store');
-        Route::get('/{employee}/edit', [EmployeeController::class, 'edit'])->name('edit');
-        Route::put('/{employee}', [EmployeeController::class, 'update'])->name('update');
-        Route::delete('/{employee}', [EmployeeController::class, 'destroy'])->name('destroy');
-
-        // Export and utility operations
-        Route::post('/bulk-action', [EmployeeController::class, 'bulkAction'])->name('bulk-action');
-        Route::get('/export/excel', [EmployeeController::class, 'export'])->name('export');
-        Route::get('/search', [EmployeeController::class, 'search'])->name('search');
+        // Analytics and reporting for training types
+        Route::get('/{certificateType}/analytics', [CertificateTypeController::class, 'analytics'])->name('analytics');
+        Route::get('/{certificateType}/employees', [CertificateTypeController::class, 'employeesList'])->name('employees');
     });
 
     /*
@@ -147,9 +156,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     | DEPARTMENT ROUTES (Optional)
     |--------------------------------------------------------------------------
     */
-    if (class_exists('App\Http\Controllers\DepartmentController')) {
-        Route::resource('departments', DepartmentController::class);
-    }
+    Route::prefix('departments')->name('departments.')->group(function () {
+        Route::get('/', [DepartmentController::class, 'index'])->name('index');
+        Route::get('/create', [DepartmentController::class, 'create'])->name('create');
+        Route::post('/', [DepartmentController::class, 'store'])->name('store');
+        Route::get('/{department}/edit', [DepartmentController::class, 'edit'])->name('edit');
+        Route::put('/{department}', [DepartmentController::class, 'update'])->name('update');
+        Route::delete('/{department}', [DepartmentController::class, 'destroy'])->name('destroy');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -169,6 +183,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // Export all containers
         Route::get('/export-all-containers', [EmployeeContainerController::class, 'exportAllContainers'])
              ->name('export-containers');
+
+        // System health check
+        Route::get('/health', function () {
+            return response()->json([
+                'status' => 'ok',
+                'timestamp' => now(),
+                'employees' => \App\Models\Employee::count(),
+                'certificates' => \App\Models\EmployeeCertificate::count(),
+                'storage_used' => \Storage::disk('private')->size('containers')
+            ]);
+        })->name('health');
     });
 
     /*
@@ -178,39 +203,77 @@ Route::middleware(['auth', 'verified'])->group(function () {
     */
     Route::prefix('api')->name('api.')->group(function () {
 
-        // Container statistics for dashboard
+        // Container statistics
         Route::get('/container-stats', [EmployeeContainerController::class, 'getContainerStatistics'])
              ->name('container-stats');
 
-        // Certificate status distribution
-        Route::get('/certificate-distribution', [EmployeeContainerController::class, 'getCertificateDistribution'])
-             ->name('certificate-distribution');
+        // Quick search across all containers
+        Route::get('/quick-search', [EmployeeContainerController::class, 'quickSearch'])
+             ->name('quick-search');
 
-        // Employee search autocomplete
-        Route::get('/employees/search', [EmployeeController::class, 'searchEmployees'])
-             ->name('employees.search');
+        // Certificate expiry notifications
+        Route::get('/certificate-alerts', [EmployeeContainerController::class, 'getCertificateAlerts'])
+             ->name('certificate-alerts');
 
-        // Training Types search autocomplete
-        Route::get('/training-types/search', [TrainingTypeController::class, 'search'])
-             ->name('training-types.search');
+        // File upload progress
+        Route::post('/upload-progress', function () {
+            return response()->json(['status' => 'uploading']);
+        })->name('upload-progress');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | FILE SERVING ROUTES (Secure file access)
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('files')->name('files.')->middleware(['auth'])->group(function () {
+
+        // Serve private files securely
+        Route::get('/containers/{employee}/{type}/{filename}', function ($employee, $type, $filename) {
+            $employee = \App\Models\Employee::findOrFail($employee);
+
+            // Security check - ensure user has access
+            if (!auth()->user()->canAccessEmployeeContainer($employee)) {
+                abort(403);
+            }
+
+            $path = "containers/employee-{$employee->id}/{$type}/{$filename}";
+
+            if (!\Storage::disk('private')->exists($path)) {
+                abort(404);
+            }
+
+            return \Storage::disk('private')->response($path);
+        })->where([
+            'type' => '(background-checks|certificates)',
+            'filename' => '[a-zA-Z0-9\-_\.]+'
+        ])->name('serve');
+
+        // Serve certificate files with additional type folder
+        Route::get('/containers/{employee}/certificates/{typeCode}/{filename}', function ($employee, $typeCode, $filename) {
+            $employee = \App\Models\Employee::findOrFail($employee);
+
+            if (!auth()->user()->canAccessEmployeeContainer($employee)) {
+                abort(403);
+            }
+
+            $path = "containers/employee-{$employee->id}/certificates/{$typeCode}/{$filename}";
+
+            if (!\Storage::disk('private')->exists($path)) {
+                abort(404);
+            }
+
+            return \Storage::disk('private')->response($path);
+        })->where([
+            'typeCode' => '[a-zA-Z0-9\-_]+',
+            'filename' => '[a-zA-Z0-9\-_\.]+'
+        ])->name('serve-certificate');
     });
 });
 
 /*
 |--------------------------------------------------------------------------
-| FILE SERVING ROUTES (Protected)
-|--------------------------------------------------------------------------
-*/
-Route::middleware(['auth'])->group(function () {
-    // Serve employee files (background checks, certificates)
-    Route::get('/employee-files/{employee}/{type}/{filename}', [EmployeeContainerController::class, 'serveFile'])
-         ->where(['filename' => '.*\.(pdf|jpg|jpeg|png)'])
-         ->name('employee.files.serve');
-});
-
-/*
-|--------------------------------------------------------------------------
-| SCHEDULED TASK ENDPOINTS (for monitoring/cron)
+| SCHEDULED TASK ENDPOINTS (for cron jobs)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth'])->prefix('cron')->name('cron.')->group(function () {
@@ -230,21 +293,25 @@ Route::middleware(['auth'])->prefix('cron')->name('cron.')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| REDIRECT LEGACY ROUTES
+| PUBLIC ROUTES (No authentication required)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth'])->group(function () {
-    // Redirect old employee show route to container view
-    Route::get('/employees/{employee}/show', function ($employee) {
-        return redirect()->route('employee-containers.show', $employee);
-    })->name('employees.show.redirect');
 
-    // Redirect old certificate-types routes to training-types
-    Route::get('/certificate-types', function () {
-        return redirect()->route('training-types.index');
-    });
+// Welcome page with system info
+Route::get('/welcome', function () {
+    return Inertia::render('Welcome', [
+        'canLogin' => Route::has('login'),
+        'canRegister' => Route::has('register'),
+        'laravelVersion' => \Illuminate\Foundation\Application::VERSION,
+        'phpVersion' => PHP_VERSION,
+    ]);
+})->name('welcome');
 
-    Route::get('/certificate-types/{id}', function ($id) {
-        return redirect()->route('training-types.container', $id);
-    });
-});
+// Health check for monitoring
+Route::get('/health-check', function () {
+    return response()->json([
+        'status' => 'ok',
+        'timestamp' => now(),
+        'version' => config('app.version', '1.0.0')
+    ]);
+})->name('health-check');
