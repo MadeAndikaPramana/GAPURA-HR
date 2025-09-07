@@ -5,11 +5,11 @@ use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EmployeeContainerController;
 use App\Http\Controllers\CertificateStatusController;
 use App\Http\Controllers\DepartmentController;
-use App\Http\Controllers\CertificateTypeController;
 use App\Http\Controllers\SDMController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use App\Http\Controllers\TrainingTypeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -135,21 +135,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
-    | CERTIFICATE TYPES MANAGEMENT (Training Type)
+    | CERTIFICATE TYPES / TRAINING TYPES MANAGEMENT
     |--------------------------------------------------------------------------
     */
-    Route::prefix('certificate-types')->name('certificate-types.')->group(function () {
-        Route::get('/', [CertificateTypeController::class, 'index'])->name('index');
-        Route::get('/create', [CertificateTypeController::class, 'create'])->name('create');
-        Route::post('/', [CertificateTypeController::class, 'store'])->name('store');
-        Route::get('/{certificateType}/edit', [CertificateTypeController::class, 'edit'])->name('edit');
-        Route::put('/{certificateType}', [CertificateTypeController::class, 'update'])->name('update');
-        Route::delete('/{certificateType}', [CertificateTypeController::class, 'destroy'])->name('destroy');
-
-        // Analytics and reporting for training types
-        Route::get('/{certificateType}/analytics', [CertificateTypeController::class, 'analytics'])->name('analytics');
-        Route::get('/{certificateType}/employees', [CertificateTypeController::class, 'employeesList'])->name('employees');
-    });
+    Route::prefix('training-types')->name('training-types.')->group(function () {
+    Route::get('/', [TrainingTypeController::class, 'index'])->name('index');
+    Route::get('/create', [TrainingTypeController::class, 'create'])->name('create');
+    Route::post('/', [TrainingTypeController::class, 'store'])->name('store');
+    Route::get('/{certificateType}/edit', [TrainingTypeController::class, 'edit'])->name('edit');
+    Route::put('/{certificateType}', [TrainingTypeController::class, 'update'])->name('update');
+    Route::delete('/{certificateType}', [TrainingTypeController::class, 'destroy'])->name('destroy');
+});
 
     /*
     |--------------------------------------------------------------------------
