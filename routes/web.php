@@ -138,13 +138,28 @@ Route::middleware(['auth', 'verified'])->group(function () {
     | CERTIFICATE TYPES / TRAINING TYPES MANAGEMENT
     |--------------------------------------------------------------------------
     */
-    Route::prefix('training-types')->name('training-types.')->group(function () {
+   Route::prefix('training-types')->name('training-types.')->middleware(['auth', 'verified'])->group(function () {
+
+    // Main CRUD Routes
     Route::get('/', [TrainingTypeController::class, 'index'])->name('index');
     Route::get('/create', [TrainingTypeController::class, 'create'])->name('create');
     Route::post('/', [TrainingTypeController::class, 'store'])->name('store');
     Route::get('/{certificateType}/edit', [TrainingTypeController::class, 'edit'])->name('edit');
     Route::put('/{certificateType}', [TrainingTypeController::class, 'update'])->name('update');
     Route::delete('/{certificateType}', [TrainingTypeController::class, 'destroy'])->name('destroy');
+
+    // Container & Analytics Routes (yang missing)
+    Route::get('/{certificateType}/container', [TrainingTypeController::class, 'showContainer'])->name('container');
+    Route::get('/{certificateType}/employees', [TrainingTypeController::class, 'getEmployeesList'])->name('employees');
+    Route::get('/{certificateType}/analytics', [TrainingTypeController::class, 'analytics'])->name('analytics');
+
+    // AJAX/API Routes
+    Route::get('/search', [TrainingTypeController::class, 'search'])->name('search');
+    Route::get('/api/categories', [TrainingTypeController::class, 'getCategories'])->name('api.categories');
+
+    // Bulk Operations
+    Route::post('/bulk-action', [TrainingTypeController::class, 'bulkAction'])->name('bulk-action');
+    Route::post('/bulk-delete', [TrainingTypeController::class, 'bulkDelete'])->name('bulk-delete');
 });
 
     /*

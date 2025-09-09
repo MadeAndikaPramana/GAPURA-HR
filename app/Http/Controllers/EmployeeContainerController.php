@@ -112,37 +112,40 @@ class EmployeeContainerController extends Controller
      * Show specific employee container
      */
     public function show(Employee $employee)
-    {
-        $employee->load([
-            'department',
-            'employeeCertificates' => function($query) {
-                $query->with('certificateType')
-                      ->orderBy('created_at', 'desc');
-            }
-        ]);
+{
+    // Load employee with relationships
+    $employee->load([
+        'department',
+        'employeeCertificates' => function($query) {
+            $query->with('certificateType')
+                  ->orderBy('created_at', 'desc');
+        }
+    ]);
 
-        // Calculate container statistics
-        $statistics = [
-            'total' => $employee->employeeCertificates->count(),
-            'active' => $employee->employeeCertificates->where('status', 'active')->count(),
-            'expired' => $employee->employeeCertificates->where('status', 'expired')->count(),
-            'expiring_soon' => $employee->employeeCertificates->where('status', 'expiring_soon')->count(),
-            'has_background_check' => !is_null($employee->background_check_date),
-        ];
+    // Calculate container statistics
+    $statistics = [
+        'total' => $employee->employeeCertificates->count(),
+        'active' => $employee->employeeCertificates->where('status', 'active')->count(),
+        'expired' => $employee->employeeCertificates->where('status', 'expired')->count(),
+        'expiring_soon' => $employee->employeeCertificates->where('status', 'expiring_soon')->count(),
+        'has_background_check' => !is_null($employee->background_check_date),
+    ];
 
-        // ✅ FIXED: Render to correct container view page
-        return Inertia::render('Employees/Container', [
-            'employee' => $employee,
-            'statistics' => $statistics,
-            'profile' => [
-                'position' => $employee->position ?? 'No Position',
-                'department' => $employee->department->name ?? 'No Department',
-                'hire_date' => $employee->hire_date,
-                'status' => $employee->status,
-            ]
-        ]);
-    }
+    // Profile data
+    $profile = [
+        'position' => $employee->position ?? 'No Position',
+        'department' => $employee->department->name ?? 'No Department',
+        'hire_date' => $employee->hire_date ? $employee->hire_date->format('Y-m-d') : null,
+        'status' => $employee->status,
+    ];
 
+    // ✅ FIXED: Return the correct component path
+    return Inertia::render('Employees/Container', [
+        'employee' => $employee,
+        'statistics' => $statistics,
+        'profile' => $profile,
+    ]);
+}
     // Add other container methods as needed...
     public function storeCertificate(Request $request, Employee $employee)
     {
