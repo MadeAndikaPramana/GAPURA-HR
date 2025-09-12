@@ -24,6 +24,22 @@ php artisan db:seed        # Run database seeders
 
 # Code quality
 ./vendor/bin/pint          # Laravel Pint code formatter (if available)
+
+# Container Management Commands
+php artisan containers:health-check                    # Check all containers
+php artisan containers:health-check --employee=EMP001  # Check specific employee
+php artisan containers:health-check --repair           # Auto-repair issues
+php artisan containers:health-check --report=report.txt # Save report
+
+php artisan containers:bulk-operations create          # Create missing containers
+php artisan containers:bulk-operations repair          # Repair all containers
+php artisan containers:bulk-operations cleanup         # Cleanup orphaned files
+php artisan containers:bulk-operations migrate         # Migrate container structure
+
+# MPGA Import Commands
+php artisan mpga:import file.xlsx                      # Import MPGA training data
+php artisan mpga:import file.xlsx --update-existing    # Update existing certificates
+php artisan mpga:import file.xlsx --create-types       # Create new certificate types
 ```
 
 ### Frontend (React/Vite)

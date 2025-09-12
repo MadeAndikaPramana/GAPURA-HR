@@ -5,6 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
 class Employee extends Model
@@ -14,13 +15,17 @@ class Employee extends Model
         'department_id', 'position', 'hire_date', 'status',
         'background_check_date', 'background_check_status',
         'background_check_notes', 'background_check_files',
-        'notes', 'profile_photo_path'
+        'notes', 'profile_photo_path',
+        'container_created_at', 'container_status', 'container_file_count', 
+        'container_last_updated'
     ];
 
     protected $casts = [
         'hire_date' => 'date',
         'background_check_date' => 'date',
-        'background_check_files' => 'array'
+        'background_check_files' => 'array',
+        'container_created_at' => 'datetime',
+        'container_last_updated' => 'datetime'
     ];
 
     // ===== RELATIONSHIPS =====
@@ -456,5 +461,205 @@ public function scopeMissingMandatoryCertificates($query)
 public function scopeWithExpiringCertificates($query, $days = 30)
 {
     return $query->whereHas('expiringSoonCertificateFiles');
+}
+
+// ===== CONTAINER HEALTH CHECK METHODS =====
+
+/**
+ * Get container health status
+ */
+public function getContainerHealth(): array
+{
+    $health = [
+        'status' => 'healthy',
+        'score' => 100,
+        'issues' => [],
+        'warnings' => [],
+        'last_checked' => now()->toISOString()
+    ];
+
+    try {
+        // Check if container exists
+        $containerPath = $this->getContainerFolderPath();
+        if (!Storage::disk('private')->exists($containerPath)) {
+            $health['status'] = 'critical';
+            $health['score'] = 0;
+            $health['issues'][] = 'Container directory missing';
+            return $health;
+        }
+
+        // Check metadata file
+        $metadataPath = "{$containerPath}/container_metadata.json";
+        if (!Storage::disk('private')->exists($metadataPath)) {
+            $health['issues'][] = 'Container metadata missing';
+            $health['score'] -= 20;
+        } else {
+            $metadata = json_decode(Storage::disk('private')->get($metadataPath), true);
+            
+            // Check metadata integrity
+            if (!isset($metadata['employee_id']) || $metadata['employee_id'] !== $this->employee_id) {
+                $health['issues'][] = 'Employee ID mismatch in metadata';
+                $health['score'] -= 15;
+            }
+            
+            // Check last update
+            if (isset($metadata['last_updated'])) {
+                $lastUpdate = Carbon::parse($metadata['last_updated']);
+                if ($lastUpdate->diffInDays(now()) > 30) {
+                    $health['warnings'][] = 'Container not updated in 30+ days';
+                    $health['score'] -= 5;
+                }
+            }
+        }
+
+        // Check directory structure
+        $requiredDirs = ['certificates', 'background_checks', 'documents', 'photos'];
+        foreach ($requiredDirs as $dir) {
+            if (!Storage::disk('private')->exists("{$containerPath}/{$dir}")) {
+                $health['issues'][] = "Missing {$dir} directory";
+                $health['score'] -= 10;
+            }
+        }
+
+        // Check file count consistency
+        if ($this->container_file_count !== null) {
+            $actualFileCount = count(Storage::disk('private')->allFiles($containerPath));
+            if (abs($actualFileCount - $this->container_file_count) > 0) {
+                $health['warnings'][] = 'File count mismatch between database and storage';
+                $health['score'] -= 5;
+            }
+        }
+
+        // Check background check files
+        if (!empty($this->background_check_files)) {
+            foreach ($this->background_check_files as $file) {
+                if (!Storage::disk('private')->exists("{$containerPath}/background_checks/{$file['filename']}")) {
+                    $health['issues'][] = "Missing background check file: {$file['filename']}";
+                    $health['score'] -= 10;
+                }
+            }
+        }
+
+        // Determine overall status
+        if ($health['score'] < 50) {
+            $health['status'] = 'critical';
+        } elseif ($health['score'] < 80) {
+            $health['status'] = 'warning';
+        } elseif (!empty($health['warnings'])) {
+            $health['status'] = 'warning';
+        }
+
+    } catch (\Exception $e) {
+        $health['status'] = 'error';
+        $health['score'] = 0;
+        $health['issues'][] = 'Health check failed: ' . $e->getMessage();
+    }
+
+    return $health;
+}
+
+/**
+ * Repair container issues automatically
+ */
+public function repairContainer(): array
+{
+    $results = [
+        'success' => true,
+        'repairs_made' => [],
+        'errors' => []
+    ];
+
+    try {
+        $containerPath = $this->getContainerFolderPath();
+        
+        // Create missing directories
+        $requiredDirs = ['certificates', 'background_checks', 'documents', 'photos'];
+        foreach ($requiredDirs as $dir) {
+            $dirPath = "{$containerPath}/{$dir}";
+            if (!Storage::disk('private')->exists($dirPath)) {
+                Storage::disk('private')->makeDirectory($dirPath);
+                $results['repairs_made'][] = "Created missing {$dir} directory";
+            }
+        }
+
+        // Create or repair metadata
+        $metadataPath = "{$containerPath}/container_metadata.json";
+        if (!Storage::disk('private')->exists($metadataPath)) {
+            $this->createContainerMetadata();
+            $results['repairs_made'][] = 'Created missing metadata file';
+        } else {
+            // Update metadata with current info
+            $metadata = json_decode(Storage::disk('private')->get($metadataPath), true);
+            $metadata['employee_id'] = $this->employee_id;
+            $metadata['employee_name'] = $this->name;
+            $metadata['last_updated'] = now()->toISOString();
+            
+            Storage::disk('private')->put($metadataPath, json_encode($metadata, JSON_PRETTY_PRINT));
+            $results['repairs_made'][] = 'Updated metadata file';
+        }
+
+        // Update file count
+        $actualFileCount = count(Storage::disk('private')->allFiles($containerPath));
+        if ($this->container_file_count !== $actualFileCount) {
+            $this->updateQuietly(['container_file_count' => $actualFileCount]);
+            $results['repairs_made'][] = 'Updated file count in database';
+        }
+
+    } catch (\Exception $e) {
+        $results['success'] = false;
+        $results['errors'][] = $e->getMessage();
+    }
+
+    return $results;
+}
+
+/**
+ * Create container metadata file
+ */
+private function createContainerMetadata(): void
+{
+    $containerPath = $this->getContainerFolderPath();
+    
+    $metadata = [
+        'employee_id' => $this->employee_id,
+        'employee_name' => $this->name,
+        'container_created' => $this->container_created_at ? $this->container_created_at->toISOString() : now()->toISOString(),
+        'container_version' => '1.0',
+        'total_files' => count(Storage::disk('private')->allFiles($containerPath)),
+        'total_size' => 0,
+        'last_updated' => now()->toISOString(),
+        'directories' => [
+            'certificates' => ['created' => now()->toISOString(), 'file_count' => 0],
+            'background_checks' => ['created' => now()->toISOString(), 'file_count' => 0],
+            'documents' => ['created' => now()->toISOString(), 'file_count' => 0],
+            'photos' => ['created' => now()->toISOString(), 'file_count' => 0]
+        ]
+    ];
+
+    Storage::disk('private')->put(
+        "{$containerPath}/container_metadata.json",
+        json_encode($metadata, JSON_PRETTY_PRINT)
+    );
+}
+
+/**
+ * Scope to get employees with container issues
+ */
+public function scopeWithContainerIssues($query)
+{
+    return $query->where(function($q) {
+        $q->whereNull('container_created_at')
+          ->orWhere('container_status', '!=', 'active')
+          ->orWhereRaw('container_last_updated < DATE_SUB(NOW(), INTERVAL 30 DAY)');
+    });
+}
+
+/**
+ * Check if container exists and is healthy
+ */
+public function hasHealthyContainer(): bool
+{
+    $health = $this->getContainerHealth();
+    return $health['status'] === 'healthy';
 }
 }

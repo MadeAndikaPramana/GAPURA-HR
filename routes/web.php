@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use App\Http\Controllers\TrainingTypeController;
+use App\Http\Controllers\SecureFileController;
 
 /*
 |--------------------------------------------------------------------------
@@ -104,6 +105,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/import', [SDMController::class, 'import'])->name('import.process');
         Route::get('/template/download', [SDMController::class, 'downloadTemplate'])->name('download-template');
         Route::get('/export', [SDMController::class, 'export'])->name('export');
+
+        // MPGA Training Import Routes
+        Route::post('/import-mpga', [SDMController::class, 'importMPGA'])->name('import.mpga');
+        Route::get('/mpga-template/download', [SDMController::class, 'downloadMPGATemplate'])->name('download-mpga-template');
 
         // Bulk Operations
         Route::post('/bulk-action', [SDMController::class, 'bulkAction'])->name('bulk-action');
@@ -279,6 +284,29 @@ Route::middleware(['auth', 'verified'])->group(function () {
             'typeCode' => '[a-zA-Z0-9\-_]+',
             'filename' => '[a-zA-Z0-9\-_\.]+'
         ])->name('serve-certificate');
+
+        // Secure File Storage Routes
+        Route::get('/secure/{token}/{filename?}', [SecureFileController::class, 'secureDownload'])
+             ->name('secure-download');
+             
+        Route::get('/{fileStorage}/download', [SecureFileController::class, 'download'])
+             ->name('download');
+             
+        Route::get('/{fileStorage}/preview', [SecureFileController::class, 'preview'])
+             ->name('preview');
+             
+        Route::get('/{fileStorage}/metadata', [SecureFileController::class, 'metadata'])
+             ->name('metadata');
+             
+        Route::get('/versions/{employeeId}/{certificateTypeId}', [SecureFileController::class, 'versions'])
+             ->name('versions');
+             
+        Route::delete('/{fileStorage}', [SecureFileController::class, 'delete'])
+             ->name('delete');
+             
+        Route::get('/statistics', [SecureFileController::class, 'statistics'])
+             ->middleware('can:admin')
+             ->name('statistics');
     });
 });
 

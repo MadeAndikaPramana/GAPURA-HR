@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 use App\Models\Employee;
 use App\Models\Department;
 use App\Imports\EmployeesImport;
+use App\Imports\MPGATrainingImport;
 use App\Exports\EmployeesExport;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -169,7 +170,8 @@ class SDMController extends Controller
     {
         return Inertia::render('SDM/Import', [
             'departments' => Department::all(['id', 'name', 'code']),
-            'importHistory' => $this->getRecentImports()
+            'importHistory' => $this->getRecentImports(),
+            'mpgaImportHistory' => $this->getRecentMPGAImports()
         ]);
     }
 
@@ -214,13 +216,71 @@ class SDMController extends Controller
             // Log import activity
             $this->logImportActivity($request, $results);
 
-            return back()->with('success',
-                "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}"
-            )->with('import_results', $results);
+            $message = "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}";
+            
+            if (isset($results['containers_created']) && $results['containers_created'] > 0) {
+                $message .= ", Containers created: {$results['containers_created']}";
+            }
+            
+            if (isset($results['container_errors']) && $results['container_errors'] > 0) {
+                $message .= ", Container errors: {$results['container_errors']}";
+            }
+            
+            return back()->with('success', $message)->with('import_results', $results);
 
         } catch (\Exception $e) {
             return back()->with('error', 'Import failed: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Import MPGA training data from Excel
+     */
+    public function importMPGA(Request $request)
+    {
+        $request->validate([
+            'mpga_file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+            'update_existing' => 'boolean',
+            'create_types' => 'boolean'
+        ]);
+
+        try {
+            $file = $request->file('mpga_file');
+            $updateExisting = $request->boolean('update_existing', false);
+            $createTypes = $request->boolean('create_types', false);
+
+            // Store file temporarily
+            $filePath = $file->store('temp/mpga_imports');
+            $fullPath = Storage::path($filePath);
+
+            // Import using MPGA import class
+            $import = new MPGATrainingImport($updateExisting, $createTypes);
+            Excel::import($import, $fullPath);
+
+            // Get import results
+            $results = $import->getImportResults();
+
+            // Clean up temp file
+            Storage::delete($filePath);
+
+            // Log import activity
+            $this->logMPGAImportActivity($request, $results);
+
+            return back()->with('success',
+                "MPGA import completed! Processed: {$results['processed']}, Created: {$results['created']}, Updated: {$results['updated']}, Errors: {$results['errors']}"
+            )->with('mpga_import_results', $results);
+
+        } catch (\Exception $e) {
+            return back()->with('error', 'MPGA import failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Download MPGA import template
+     */
+    public function downloadMPGATemplate()
+    {
+        return $this->createMPGAExcelTemplate();
     }
 
     /**
@@ -383,6 +443,70 @@ class SDMController extends Controller
         \Illuminate\Support\Facades\Log::info('SDM Employee Excel Import', [
             'user_id' => auth()->id(),
             'filename' => $request->file('excel_file')->getClientOriginalName(),
+            'results' => $results,
+            'timestamp' => now()
+        ]);
+    }
+
+    /**
+     * Create MPGA Excel template
+     */
+    private function createMPGAExcelTemplate()
+    {
+        return Excel::download(new class implements \Maatwebsite\Excel\Concerns\FromArray, \Maatwebsite\Excel\Concerns\WithHeadings {
+            public function array(): array
+            {
+                return [
+                    ['EMP001', 'John Doe', 'Fire Safety Basic', '2024-01-15', '2026-01-15', 'Valid', 'CERT001', 'Initial'],
+                    ['EMP002', 'Jane Smith', 'First Aid CPR', '2024-02-01', '2025-02-01', 'Valid', 'CERT002', 'Recurrent'],
+                ];
+            }
+
+            public function headings(): array
+            {
+                return [
+                    'NIP/Employee ID', 'Name', 'Training Type', 'Issue Date', 
+                    'Expiry Date', 'Status', 'Certificate Number', 'Training Version'
+                ];
+            }
+        }, 'mpga_training_import_template.xlsx');
+    }
+
+    /**
+     * Get recent MPGA import history
+     */
+    private function getRecentMPGAImports()
+    {
+        // This could be stored in a separate imports log table
+        // For now, return mock data
+        return [
+            [
+                'date' => now()->subDays(2)->format('Y-m-d H:i'),
+                'file' => 'mpga_training_q1_2024.xlsx',
+                'processed' => 89,
+                'created' => 45,
+                'updated' => 32,
+                'errors' => 2
+            ],
+            [
+                'date' => now()->subWeeks(1)->format('Y-m-d H:i'),
+                'file' => 'mpga_recurrent_training.xlsx',
+                'processed' => 156,
+                'created' => 78,
+                'updated' => 73,
+                'errors' => 5
+            ]
+        ];
+    }
+
+    /**
+     * Log MPGA import activity for audit trail
+     */
+    private function logMPGAImportActivity($request, $results)
+    {
+        \Illuminate\Support\Facades\Log::info('SDM MPGA Training Import', [
+            'user_id' => auth()->id(),
+            'filename' => $request->file('mpga_file')->getClientOriginalName(),
             'results' => $results,
             'timestamp' => now()
         ]);
