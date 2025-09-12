@@ -15,56 +15,69 @@ class TrainingTypeController extends Controller
     /**
      * Display training types list
      */
-    public function index(Request $request)
-    {
-        $query = CertificateType::withCount([
-            'employeeCertificates as total_certificates',
-            'employeeCertificates as active_certificates' => function($q) {
-                $q->where('status', 'active');
-            },
-            'employeeCertificates as expired_certificates' => function($q) {
-                $q->where('status', 'expired');
-            }
-        ]);
+   public function index(Request $request)
+{
+    $query = CertificateType::query();
 
-        // Search functionality
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('code', 'like', "%{$search}%")
-                  ->orWhere('category', 'like', "%{$search}%");
-            });
-        }
-
-        // Category filter
-        if ($request->filled('category')) {
-            $query->where('category', $request->category);
-        }
-
-        // Status filter
-        if ($request->filled('status')) {
-            $isActive = $request->status === 'active';
-            $query->where('is_active', $isActive);
-        }
-
-        $certificateTypes = $query->orderBy('name')->paginate(15);
-
-        // Get categories for filter
-        $categories = CertificateType::where('is_active', true)
-            ->whereNotNull('category')
-            ->distinct('category')
-            ->pluck('category')
-            ->sort()
-            ->values();
-
-        return Inertia::render('TrainingTypes/Index', [
-            'certificateTypes' => $certificateTypes,
-            'categories' => $categories,
-            'filters' => $request->only(['search', 'category', 'status']),
-            'stats' => $this->getStats(),
-        ]);
+    // Apply filters
+    if ($request->filled('search')) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('name', 'like', "%{$search}%")
+              ->orWhere('code', 'like', "%{$search}%")
+              ->orWhere('category', 'like', "%{$search}%");
+        });
     }
+
+    if ($request->filled('status')) {
+        switch ($request->status) {
+            case 'active':
+                $query->where('is_active', true);
+                break;
+            case 'inactive':
+                $query->where('is_active', false);
+                break;
+            case 'mandatory':
+                $query->where('is_mandatory', true);
+                break;
+        }
+    }
+
+    if ($request->filled('category')) {
+        $query->where('category', $request->category);
+    }
+
+    // Get certificate types with container statistics
+    $certificateTypes = $query->with(['employeeCertificates' => function($query) {
+            $query->select('certificate_type_id', 'employee_id', 'status');
+        }])
+        ->orderBy('name')
+        ->paginate(12) // Grid layout works better with 12 items per page
+        ->withQueryString();
+
+    // Add container statistics to each certificate type
+    $certificateTypes->getCollection()->transform(function ($certificateType) {
+        $certificates = $certificateType->employeeCertificates;
+
+        $containerStats = [
+            'total_certificates' => $certificates->count(),
+            'active_certificates' => $certificates->where('status', 'active')->count(),
+            'expired_certificates' => $certificates->where('status', 'expired')->count(),
+            'expiring_soon_certificates' => $certificates->where('status', 'expiring_soon')->count(),
+            'unique_employees' => $certificates->unique('employee_id')->count(),
+        ];
+
+        $certificateType->container_stats = $containerStats;
+
+        return $certificateType;
+    });
+
+    return Inertia::render('TrainingTypes/Index', [
+        'certificateTypes' => $certificateTypes,
+        'filters' => $request->only(['search', 'status', 'category']),
+        'stats' => $this->getStats(),
+    ]);
+}
 
     /**
      * Show form for creating new training type
@@ -176,100 +189,99 @@ class TrainingTypeController extends Controller
     /**
      * Show training type container (who has this certificate?) - FIXED
      */
-    public function showContainer(CertificateType $certificateType)
-    {
-        // Load employees with certificates for this type
-        $employees = Employee::whereHas('employeeCertificates', function($query) use ($certificateType) {
-            $query->where('certificate_type_id', $certificateType->id);
-        })->with([
-            'department',
-            'employeeCertificates' => function($query) use ($certificateType) {
-                $query->where('certificate_type_id', $certificateType->id)
-                      ->orderBy('created_at', 'desc');
-            }
-        ])->get();
+   public function showContainer(CertificateType $certificateType)
+{
+    // Load employees with certificates for this type
+    $employees = Employee::whereHas('employeeCertificates', function($query) use ($certificateType) {
+        $query->where('certificate_type_id', $certificateType->id);
+    })->with([
+        'department',
+        'employeeCertificates' => function($query) use ($certificateType) {
+            $query->where('certificate_type_id', $certificateType->id)
+                  ->orderBy('created_at', 'desc');
+        }
+    ])->get();
 
-        // Transform employees data for the container view
-        $employeesData = $employees->map(function($employee) {
-            $latestCert = $employee->employeeCertificates->first();
+    // Transform employees data for the container view
+    $employeesData = $employees->map(function($employee) {
+        $certificates = $employee->employeeCertificates;
+        $latestCert = $certificates->first();
 
-            return [
-                'employee' => [
-                    'id' => $employee->id,
-                    'employee_id' => $employee->employee_id ?? $employee->nip,
-                    'name' => $employee->name,
-                    'position' => $employee->position,
-                    'department' => $employee->department->name ?? 'No Department',
-                    'status' => $employee->status,
-                ],
-                'latest_certificate' => $latestCert ? [
-                    'id' => $latestCert->id,
-                    'certificate_number' => $latestCert->certificate_number,
-                    'status' => $latestCert->status,
-                    'issue_date' => $latestCert->issue_date,
-                    'expiry_date' => $latestCert->expiry_date,
-                    'issuer' => $latestCert->issuer,
-                ] : null,
-                'certificates_history' => $employee->employeeCertificates->map(function($cert) {
-                    return [
-                        'id' => $cert->id,
-                        'certificate_number' => $cert->certificate_number,
-                        'status' => $cert->status,
-                        'issue_date' => $cert->issue_date,
-                        'expiry_date' => $cert->expiry_date,
-                    ];
-                })->toArray(),
-            ];
-        });
-
-        // Container statistics
-        $containerData = [
-            'statistics' => [
-                'total_certificates' => $certificateType->employeeCertificates->count(),
-                'active_certificates' => $certificateType->employeeCertificates->where('status', 'active')->count(),
-                'expired_certificates' => $certificateType->employeeCertificates->where('status', 'expired')->count(),
-                'expiring_soon_certificates' => $certificateType->employeeCertificates->where('status', 'expiring_soon')->count(),
-                'unique_employees' => $employees->count(),
-                'compliance_rate' => $this->calculateComplianceRate($certificateType),
+        return [
+            'employee' => [
+                'id' => $employee->id,
+                'employee_id' => $employee->employee_id ?? $employee->nip,
+                'name' => $employee->name,
+                'position' => $employee->position,
+                'department' => $employee->department->name ?? 'No Department',
+                'department_id' => $employee->department_id,
+                'status' => $employee->status,
             ],
-            'employees' => $employeesData,
+            'latest_certificate' => $latestCert ? [
+                'id' => $latestCert->id,
+                'certificate_number' => $latestCert->certificate_number,
+                'status' => $latestCert->status,
+                'issue_date' => $latestCert->issue_date,
+                'expiry_date' => $latestCert->expiry_date,
+                'issuer' => $latestCert->issuer,
+            ] : null,
+            'certificates_history' => [
+                'total_count' => $certificates->count(),
+                'active_count' => $certificates->where('status', 'active')->count(),
+                'expired_count' => $certificates->where('status', 'expired')->count(),
+                'expiring_soon_count' => $certificates->where('status', 'expiring_soon')->count(),
+            ],
         ];
+    });
 
-        // ✅ FIXED: Add departments data
-        $departments = \App\Models\Department::all(['id', 'name']);
+    // Container statistics
+    $containerData = [
+        'statistics' => [
+            'total_certificates' => $certificateType->employeeCertificates->count(),
+            'active_certificates' => $certificateType->employeeCertificates->where('status', 'active')->count(),
+            'expired_certificates' => $certificateType->employeeCertificates->where('status', 'expired')->count(),
+            'expiring_soon_certificates' => $certificateType->employeeCertificates->where('status', 'expiring_soon')->count(),
+            'unique_employees' => $employees->count(),
+            'compliance_rate' => $this->calculateComplianceRate($certificateType),
+        ],
+        'employees' => $employeesData,
+    ];
 
-        return Inertia::render('TrainingTypes/Container', [
-            'certificateType' => $certificateType,
-            'containerData' => $containerData,
-            'departments' => $departments, // ✅ FIXED: Add this
-            'breadcrumb' => [
-                ['name' => 'Training Types', 'url' => route('training-types.index')],
-                ['name' => $certificateType->name, 'url' => null]
-            ]
-        ]);
-    }
+    // Get departments for filter
+    $departments = \App\Models\Department::all(['id', 'name']);
+
+    return Inertia::render('TrainingTypes/Container', [
+        'certificateType' => $certificateType,
+        'containerData' => $containerData,
+        'departments' => $departments,
+        'breadcrumb' => [
+            ['name' => 'Training Types', 'url' => route('training-types.index')],
+            ['name' => $certificateType->name, 'url' => null]
+        ]
+    ]);
+}
 
     /**
      * Calculate compliance rate for mandatory certificates
      */
-    private function calculateComplianceRate(CertificateType $certificateType)
-    {
-        if (!$certificateType->is_mandatory) {
-            return null;
-        }
-
-        $totalActiveEmployees = Employee::where('status', 'active')->count();
-        $employeesWithValidCert = $certificateType->employeeCertificates()
-            ->where('status', 'active')
-            ->distinct('employee_id')
-            ->count();
-
-        if ($totalActiveEmployees === 0) {
-            return 0;
-        }
-
-        return round(($employeesWithValidCert / $totalActiveEmployees) * 100, 2);
+   private function calculateComplianceRate(CertificateType $certificateType)
+{
+    if (!$certificateType->is_mandatory) {
+        return null;
     }
+
+    $totalActiveEmployees = Employee::where('status', 'active')->count();
+    $employeesWithValidCert = $certificateType->employeeCertificates()
+        ->where('status', 'active')
+        ->distinct('employee_id')
+        ->count();
+
+    if ($totalActiveEmployees === 0) {
+        return 0;
+    }
+
+    return round(($employeesWithValidCert / $totalActiveEmployees) * 100, 2);
+}
 
     /**
      * Get employees list for this training type - MISSING METHOD

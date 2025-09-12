@@ -136,22 +136,6 @@ class CertificateType extends Model
         return $this->validity_months ? $this->validity_months * 30 : null;
     }
 
-    // ===== TRAINING TYPE CONTAINER METHODS (Reverse Lookup) =====
-
-    /**
-     * Get complete container data for this training type
-     * Shows "certificate jenis ini dimiliki siapa saja"
-     */
-    public function getContainerData()
-    {
-        return [
-            'type_info' => $this->getTypeInfo(),
-            'statistics' => $this->getContainerStatistics(),
-            'employees' => $this->getEmployeesWithCertificate(),
-            'categories' => $this->getCertificateStatusDistribution()
-        ];
-    }
-
     /**
      * Get training type information
      */
@@ -328,4 +312,242 @@ class CertificateType extends Model
 
         return $query->values();
     }
+
+    public function certificateFiles(): HasMany
+{
+    return $this->hasMany(FileStorage::class)->where('status', 'stored');
+}
+
+/**
+ * Latest version files for each employee with this certificate type
+ */
+public function latestCertificateFiles(): HasMany
+{
+    return $this->hasMany(FileStorage::class)
+        ->where('status', 'stored')
+        ->whereIn('id', function($query) {
+            $query->selectRaw('MAX(id)')
+                ->from('file_storage')
+                ->where('status', 'stored')
+                ->where('certificate_type_id', $this->id)
+                ->groupBy(['employee_id', 'certificate_type_id']);
+        });
+}
+
+/**
+ * Valid (not expired) certificate files for this type
+ */
+public function validCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->where('expiry_date', '>=', now())
+        ->where('issue_date', '<=', now());
+}
+
+/**
+ * Expired certificate files for this type
+ */
+public function expiredCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->where('expiry_date', '<', now());
+}
+
+/**
+ * Files expiring soon (within 30 days) for this type
+ */
+public function expiringSoonCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->whereBetween('expiry_date', [now(), now()->addDays(30)]);
+}
+
+/**
+ * Get employees who have this certificate type
+ */
+public function employeesWithCertificate()
+{
+    return Employee::whereHas('certificateFiles', function($query) {
+        $query->where('certificate_type_id', $this->id);
+    })->with(['certificateFiles' => function($query) {
+        $query->where('certificate_type_id', $this->id)
+              ->orderBy('version_number', 'desc');
+    }]);
+}
+
+/**
+ * Get employees who have valid certificates for this type
+ */
+public function employeesWithValidCertificate()
+{
+    return Employee::whereHas('validCertificateFiles', function($query) {
+        $query->where('certificate_type_id', $this->id);
+    })->with(['validCertificateFiles' => function($query) {
+        $query->where('certificate_type_id', $this->id);
+    }]);
+}
+
+/**
+ * Get employees missing this mandatory certificate
+ */
+public function employeesMissingCertificate()
+{
+    if (!$this->is_mandatory) {
+        return collect();
+    }
+
+    return Employee::where('status', 'active')
+        ->whereDoesntHave('validCertificateFiles', function($query) {
+            $query->where('certificate_type_id', $this->id);
+        })->get();
+}
+
+/**
+ * Get certificate statistics for this certificate type
+ */
+public function getCertificateStats(): array
+{
+    $allFiles = $this->certificateFiles;
+    $latestFiles = $this->latestCertificateFiles;
+
+    return [
+        'total_files' => $allFiles->count(),
+        'total_versions' => $allFiles->sum('version_number'),
+        'unique_employees' => $latestFiles->count(),
+        'valid_certificates' => $latestFiles->where('validity_status', 'valid')->count(),
+        'expiring_soon' => $latestFiles->where('validity_status', 'expiring_soon')->count(),
+        'expired_certificates' => $latestFiles->where('validity_status', 'expired')->count(),
+        'average_version' => $allFiles->count() > 0 ? round($allFiles->avg('version_number'), 1) : 0,
+        'total_file_size' => $allFiles->sum('file_size'),
+        'compliance_rate' => $this->calculateComplianceRate()
+    ];
+}
+
+/**
+ * Calculate compliance rate for mandatory certificates
+ */
+public function calculateComplianceRate(): ?float
+{
+    if (!$this->is_mandatory) {
+        return null;
+    }
+
+    $totalActiveEmployees = Employee::where('status', 'active')->count();
+    $employeesWithValidCert = $this->validCertificateFiles()
+        ->distinct('employee_id')
+        ->count();
+
+    if ($totalActiveEmployees === 0) {
+        return 0;
+    }
+
+    return round(($employeesWithValidCert / $totalActiveEmployees) * 100, 2);
+}
+
+/**
+ * Get container data for this certificate type (for Training Type Container view)
+ */
+public function getContainerData(): array
+{
+    $employees = $this->employeesWithCertificate()->get();
+
+    $employeesData = $employees->map(function($employee) {
+        $certificates = $employee->certificateFiles->where('certificate_type_id', $this->id);
+        $latestCert = $certificates->sortByDesc('version_number')->first();
+
+        return [
+            'employee' => [
+                'id' => $employee->id,
+                'employee_id' => $employee->employee_id ?? $employee->nip,
+                'name' => $employee->name,
+                'position' => $employee->position,
+                'department' => $employee->department->name ?? 'No Department',
+                'department_id' => $employee->department_id,
+                'status' => $employee->status,
+            ],
+            'latest_certificate' => $latestCert ? [
+                'id' => $latestCert->id,
+                'version_number' => $latestCert->version_number,
+                'status' => $latestCert->validity_status,
+                'issue_date' => $latestCert->issue_date,
+                'expiry_date' => $latestCert->expiry_date,
+                'drive_file_id' => $latestCert->drive_file_id,
+                'filename' => $latestCert->original_filename,
+                'file_size' => $latestCert->formatted_file_size,
+            ] : null,
+            'certificates_history' => [
+                'total_count' => $certificates->count(),
+                'active_count' => $certificates->where('validity_status', 'valid')->count(),
+                'expired_count' => $certificates->where('validity_status', 'expired')->count(),
+                'expiring_soon_count' => $certificates->where('validity_status', 'expiring_soon')->count(),
+                'versions' => $certificates->sortByDesc('version_number')->take(5)->map(function($cert) {
+                    return [
+                        'version' => $cert->version_number,
+                        'status' => $cert->validity_status,
+                        'issue_date' => $cert->issue_date,
+                        'expiry_date' => $cert->expiry_date,
+                        'file_id' => $cert->id
+                    ];
+                })->values()->toArray()
+            ]
+        ];
+    });
+
+    return [
+        'statistics' => $this->getCertificateStats(),
+        'employees' => $employeesData->toArray()
+    ];
+}
+
+/**
+ * Get renewal timeline for this certificate type
+ */
+public function getRenewalTimeline($months = 12): array
+{
+    $startDate = now();
+    $endDate = now()->addMonths($months);
+
+    $expiringFiles = $this->latestCertificateFiles()
+        ->whereBetween('expiry_date', [$startDate, $endDate])
+        ->with('employee')
+        ->orderBy('expiry_date', 'asc')
+        ->get();
+
+    return $expiringFiles->map(function($file) {
+        return [
+            'employee_name' => $file->employee->name,
+            'employee_id' => $file->employee->employee_id ?? $file->employee->nip,
+            'current_version' => $file->version_number,
+            'expiry_date' => $file->expiry_date,
+            'days_until_expiry' => $file->days_until_expiry,
+            'status' => $file->validity_status
+        ];
+    })->toArray();
+}
+
+// Add to existing scopes
+
+/**
+ * Scope to get certificate types with files
+ */
+public function scopeWithFiles($query)
+{
+    return $query->has('certificateFiles');
+}
+
+/**
+ * Scope to get certificate types with valid files
+ */
+public function scopeWithValidFiles($query)
+{
+    return $query->has('validCertificateFiles');
+}
+
+/**
+ * Scope to get certificate types needing renewal
+ */
+public function scopeNeedingRenewal($query, $days = 30)
+{
+    return $query->has('expiringSoonCertificateFiles');
+}
 }

@@ -1,4 +1,4 @@
-// resources/js/Pages/EmployeeContainers/Show.jsx - Comprehensive Container View
+// resources/js/Pages/Employees/Show.jsx - Fixed Syntax Error
 
 import { useState, useRef } from 'react';
 import { Head, Link, router, useForm } from '@inertiajs/react';
@@ -63,76 +63,35 @@ export default function Show({
         certificate_number: '',
         issue_date: '',
         expiry_date: '',
-        notes: '',
-        background_check_status: 'pending_review',
-        background_check_notes: '',
+        notes: ''
     });
 
-    const tabs = [
-        {
-            id: 'profile',
-            name: 'Profile',
-            icon: UserIcon,
-            iconSolid: UserIcon,
-            count: null
-        },
-        {
-            id: 'background-check',
-            name: 'Background Check',
-            icon: DocumentCheckIcon,
-            iconSolid: DocumentCheckIconSolid,
-            count: backgroundCheck?.files?.length || 0
-        },
-        {
-            id: 'certificates',
-            name: 'Certificates',
-            icon: AcademicCapIcon,
-            iconSolid: AcademicCapIconSolid,
-            count: certificates.length || 0
-        },
-    ];
-
-    const handleEditSubmit = (e) => {
-        e.preventDefault();
-        put(route('employees.update', employee.id), {
-            onSuccess: () => {
-                setShowEditModal(false);
-            }
-        });
+    // Handle file upload
+    const handleFileUpload = (files) => {
+        setUploadData('files', Array.from(files));
     };
 
+    // Handle delete employee
     const handleDelete = () => {
-        router.delete(route('employees.destroy', employee.id), {
-            onSuccess: () => {
-                router.visit(route('employees.index'));
-            }
-        });
-    };
-
-    const handleFileUpload = (e) => {
-        e.preventDefault();
-
-        if (uploadType === 'certificate') {
-            post(route('employee-containers.certificates.store', employee.id), {
-                onSuccess: () => {
-                    setShowUploadModal(false);
-                    reset();
-                }
-            });
-        } else {
-            post(route('employee-containers.background-check.upload', employee.id), {
-                onSuccess: () => {
-                    setShowUploadModal(false);
-                    reset();
-                }
-            });
+        if (confirm('Are you sure you want to delete this employee?')) {
+            router.delete(route('employees.destroy', employee.id));
         }
     };
 
+    // Handle edit submit
+    const handleEditSubmit = (e) => {
+        e.preventDefault();
+        put(route('employees.update', employee.id), {
+            onSuccess: () => setShowEditModal(false)
+        });
+    };
+
+    // Get status badge
     const getStatusBadge = (status) => {
         const statusConfig = {
             active: { icon: CheckCircleIcon, bg: 'bg-green-100', text: 'text-green-800', label: 'Active' },
-            pending_review: { icon: ExclamationTriangleIcon, bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Pending Review' },
+            inactive: { icon: XCircleIcon, bg: 'bg-red-100', text: 'text-red-800', label: 'Inactive' },
+            pending_review: { icon: ExclamationTriangleIcon, bg: 'bg-yellow-100', text: 'text-yellow-800', label: 'Pending' },
             expired: { icon: XCircleIcon, bg: 'bg-red-100', text: 'text-red-800', label: 'Expired' },
             cleared: { icon: CheckCircleIcon, bg: 'bg-green-100', text: 'text-green-800', label: 'Cleared' },
         };
@@ -178,6 +137,21 @@ export default function Show({
                             <TrashIcon className="w-4 h-4 mr-2" />
                             Delete
                         </button>
+                    </div>
+                </div>
+
+                {/* Status Information */}
+                <div className="bg-white rounded-xl border border-slate-200 p-6 mt-6">
+                    <h4 className="text-lg font-semibold text-slate-900 mb-4">Status</h4>
+                    <div className="space-y-3">
+                        <div>
+                            <div className="text-sm text-slate-500 mb-1">Employee Status</div>
+                            {getStatusBadge(employee.status)}
+                        </div>
+                        <div>
+                            <div className="text-sm text-slate-500 mb-1">Background Check</div>
+                            {getStatusBadge(employee.background_check_status || 'pending_review')}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -242,382 +216,194 @@ export default function Show({
                             <div>
                                 <div className="text-sm text-slate-500">Hire Date</div>
                                 <div className="font-medium text-slate-900">
-                                    {employee.hire_date ? new Date(employee.hire_date).toLocaleDateString() : 'Not provided'}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex items-center">
-                            <CheckCircleIcon className="w-5 h-5 text-slate-400 mr-3" />
-                            <div>
-                                <div className="text-sm text-slate-500">Status</div>
-                                <div className="font-medium text-slate-900">
-                                    {getStatusBadge(employee.status || 'active')}
+                                    {employee.hire_date ? new Date(employee.hire_date).toLocaleDateString() : 'Not specified'}
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    );
-
-    // Background Check Tab Content
-    const BackgroundCheckTab = () => (
-        <div className="space-y-6">
-            {/* Header with Upload Button */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h3 className="text-xl font-semibold text-slate-900">Background Check</h3>
-                    <p className="text-slate-600 mt-1">Manage background check documents and status</p>
-                </div>
-                <button
-                    onClick={() => {
-                        setUploadType('background-check');
-                        setShowUploadModal(true);
-                    }}
-                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                    <PlusIcon className="w-4 h-4 mr-2" />
-                    Upload Documents
-                </button>
-            </div>
-
-            {/* Background Check Status */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-                <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-lg font-semibold text-slate-900">Status & Information</h4>
-                    {backgroundCheck?.status && getStatusBadge(backgroundCheck.status)}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <div className="text-sm text-slate-500 mb-1">Last Updated</div>
-                        <div className="font-medium text-slate-900">
-                            {backgroundCheck?.updated_at ? new Date(backgroundCheck.updated_at).toLocaleDateString() : 'Not updated'}
-                        </div>
-                    </div>
-                    <div>
-                        <div className="text-sm text-slate-500 mb-1">Files Count</div>
-                        <div className="font-medium text-slate-900">{backgroundCheck?.files?.length || 0} files</div>
-                    </div>
-                </div>
-
-                {backgroundCheck?.notes && (
-                    <div className="mt-4">
-                        <div className="text-sm text-slate-500 mb-1">Notes</div>
-                        <div className="text-slate-900 bg-slate-50 p-3 rounded-lg">{backgroundCheck.notes}</div>
-                    </div>
-                )}
-            </div>
-
-            {/* Files */}
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-                <h4 className="text-lg font-semibold text-slate-900 mb-4">Documents</h4>
-                {backgroundCheck?.files?.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {backgroundCheck.files.map((file, index) => (
-                            <div key={index} className="border border-slate-200 rounded-lg p-4 hover:bg-slate-50 transition-colors">
-                                <div className="flex items-center justify-between mb-2">
-                                    <DocumentIcon className="w-8 h-8 text-blue-600" />
-                                    <button className="text-slate-400 hover:text-slate-600">
-                                        <EyeIcon className="w-4 h-4" />
-                                    </button>
-                                </div>
-                                <div className="text-sm font-medium text-slate-900 truncate">{file.name}</div>
-                                <div className="text-xs text-slate-500 mt-1">{file.size || 'Unknown size'}</div>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-8">
-                        <DocumentCheckIcon className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                        <h5 className="text-lg font-medium text-slate-900 mb-2">No documents uploaded</h5>
-                        <p className="text-slate-600 mb-4">Upload background check documents to get started.</p>
-                        <button
-                            onClick={() => {
-                                setUploadType('background-check');
-                                setShowUploadModal(true);
-                            }}
-                            className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                            Upload First Document
-                        </button>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-
-    // Certificates Tab Content
-    const CertificatesTab = () => (
-        <div className="space-y-6">
-            {/* Header with Add Button */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h3 className="text-xl font-semibold text-slate-900">Certificates</h3>
-                    <p className="text-slate-600 mt-1">Training certificates and qualifications</p>
-                </div>
-                <button
-                    onClick={() => {
-                        setUploadType('certificate');
-                        setShowUploadModal(true);
-                    }}
-                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                    <PlusIcon className="w-4 h-4 mr-2" />
-                    Add Certificate
-                </button>
-            </div>
-
-            {/* Certificates Grid */}
-            {certificates?.length > 0 ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {certificates.map((certificate) => (
-                        <div key={certificate.id} className="bg-white rounded-xl border border-slate-200 p-6">
-                            <div className="flex items-start justify-between mb-4">
-                                <div className="flex items-center">
-                                    <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-                                        <AcademicCapIcon className="w-6 h-6 text-green-600" />
-                                    </div>
-                                    <div>
-                                        <h5 className="text-lg font-semibold text-slate-900">{certificate.type?.name || 'Unknown Certificate'}</h5>
-                                        <p className="text-sm text-slate-600">#{certificate.certificate_number}</p>
-                                    </div>
-                                </div>
-                                {getStatusBadge(certificate.status)}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                    <div className="text-slate-500">Issue Date</div>
-                                    <div className="font-medium text-slate-900">
-                                        {certificate.issue_date ? new Date(certificate.issue_date).toLocaleDateString() : 'N/A'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-slate-500">Expiry Date</div>
-                                    <div className="font-medium text-slate-900">
-                                        {certificate.expiry_date ? new Date(certificate.expiry_date).toLocaleDateString() : 'N/A'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-slate-500">Issuer</div>
-                                    <div className="font-medium text-slate-900">{certificate.issuer || 'N/A'}</div>
-                                </div>
-                                <div>
-                                    <div className="text-slate-500">Files</div>
-                                    <div className="font-medium text-slate-900">{certificate.files?.length || 0} files</div>
-                                </div>
-                            </div>
-
-                            {certificate.notes && (
-                                <div className="mt-4">
-                                    <div className="text-sm text-slate-500">Notes</div>
-                                    <div className="text-sm text-slate-900 mt-1">{certificate.notes}</div>
-                                </div>
-                            )}
-
-                            <div className="flex items-center justify-end mt-4 space-x-2">
-                                <button className="text-slate-600 hover:text-slate-800 transition-colors">
-                                    <EyeIcon className="w-4 h-4" />
-                                </button>
-                                <button className="text-blue-600 hover:text-blue-800 transition-colors">
-                                    <PencilIcon className="w-4 h-4" />
-                                </button>
-                                <button className="text-red-600 hover:text-red-800 transition-colors">
-                                    <TrashIcon className="w-4 h-4" />
-                                </button>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="text-center py-12">
-                    <AcademicCapIcon className="w-20 h-20 text-slate-300 mx-auto mb-6" />
-                    <h5 className="text-xl font-medium text-slate-900 mb-2">No certificates yet</h5>
-                    <p className="text-slate-600 mb-6">Add training certificates and qualifications to build the employee's profile.</p>
-                    <button
-                        onClick={() => {
-                            setUploadType('certificate');
-                            setShowUploadModal(true);
-                        }}
-                        className="bg-green-600 text-white px-8 py-3 rounded-lg hover:bg-green-700 transition-colors font-medium"
-                    >
-                        Add First Certificate
-                    </button>
-                </div>
-            )}
         </div>
     );
 
     return (
         <AuthenticatedLayout user={auth.user}>
-            <Head title={`${employee.name} - Container`} />
+            <Head title={`${employee.name} - Employee Details`} />
 
             <div className="py-6">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     {/* Header */}
                     <div className="mb-8">
-                        <div className="flex items-center space-x-4 mb-6">
+                        <div className="flex items-center mb-4">
                             <Link
                                 href={route('employees.index')}
-                                className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors"
+                                className="flex items-center text-slate-600 hover:text-slate-900 mr-4"
                             >
-                                <ArrowLeftIcon className="w-5 h-5 text-slate-600" />
+                                <ArrowLeftIcon className="w-5 h-5 mr-2" />
+                                Back to Employees
                             </Link>
-                            <div className="flex items-center space-x-4">
-                                <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center">
-                                    <span className="text-white font-bold text-2xl">
-                                        {employee.name.charAt(0).toUpperCase()}
-                                    </span>
-                                </div>
-                                <div>
-                                    <h1 className="text-3xl font-bold text-slate-900">{employee.name}</h1>
-                                    <p className="text-lg text-slate-600">
-                                        {employee.position || 'Employee'} • {employee.department?.name || 'No Department'}
-                                    </p>
-                                </div>
-                            </div>
                         </div>
+                        <h1 className="text-3xl font-bold text-slate-900">Employee Details</h1>
+                    </div>
 
-                        {/* Tabs Navigation */}
-                        <div className="border-b border-slate-200">
-                            <nav className="-mb-px flex space-x-8">
-                                {tabs.map((tab) => {
-                                    const IconComponent = activeTab === tab.id ? tab.iconSolid : tab.icon;
-                                    return (
-                                        <button
-                                            key={tab.id}
-                                            onClick={() => setActiveTab(tab.id)}
-                                            className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                                                activeTab === tab.id
-                                                    ? 'border-green-500 text-green-600'
-                                                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                                            }`}
-                                        >
-                                            <IconComponent className="w-5 h-5 mr-2" />
-                                            {tab.name}
-                                            {tab.count !== null && (
-                                                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
-                                                    activeTab === tab.id
-                                                        ? 'bg-green-100 text-green-600'
-                                                        : 'bg-slate-100 text-slate-600'
-                                                }`}>
-                                                    {tab.count}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </nav>
-                        </div>
+                    {/* Navigation Tabs */}
+                    <div className="border-b border-slate-200 mb-8">
+                        <nav className="-mb-px flex space-x-8">
+                            <button
+                                onClick={() => setActiveTab('profile')}
+                                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                                    activeTab === 'profile'
+                                        ? 'border-green-500 text-green-600'
+                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                                <UserIcon className="w-5 h-5 inline mr-2" />
+                                Profile
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('certificates')}
+                                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                                    activeTab === 'certificates'
+                                        ? 'border-green-500 text-green-600'
+                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                                <AcademicCapIcon className="w-5 h-5 inline mr-2" />
+                                Certificates ({certificates.length})
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('background-check')}
+                                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                                    activeTab === 'background-check'
+                                        ? 'border-green-500 text-green-600'
+                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                }`}
+                            >
+                                <DocumentCheckIcon className="w-5 h-5 inline mr-2" />
+                                Background Check
+                            </button>
+                        </nav>
                     </div>
 
                     {/* Tab Content */}
-                    <div className="mt-8">
+                    <div className="mb-8">
                         {activeTab === 'profile' && <ProfileTab />}
-                        {activeTab === 'background-check' && <BackgroundCheckTab />}
-                        {activeTab === 'certificates' && <CertificatesTab />}
+                        {activeTab === 'certificates' && (
+                            <div className="bg-white rounded-xl border border-slate-200 p-6">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="text-lg font-semibold text-slate-900">Certificates</h3>
+                                    <button
+                                        onClick={() => {
+                                            setUploadType('certificate');
+                                            setShowUploadModal(true);
+                                        }}
+                                        className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                    >
+                                        <PlusIcon className="w-4 h-4 mr-2" />
+                                        Add Certificate
+                                    </button>
+                                </div>
+                                {certificates.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {certificates.map((cert) => (
+                                            <div key={cert.id} className="border border-slate-200 rounded-lg p-4">
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <h4 className="font-medium text-slate-900">{cert.certificate_type?.name}</h4>
+                                                        <p className="text-sm text-slate-600">Number: {cert.certificate_number}</p>
+                                                        <p className="text-sm text-slate-600">Expires: {cert.expiry_date}</p>
+                                                    </div>
+                                                    {getStatusBadge(cert.status)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12">
+                                        <AcademicCapIcon className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                                        <h3 className="text-lg font-medium text-slate-900 mb-2">No Certificates</h3>
+                                        <p className="text-slate-600">Add certificates for this employee.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {activeTab === 'background-check' && (
+                            <div className="bg-white rounded-xl border border-slate-200 p-6">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="text-lg font-semibold text-slate-900">Background Check</h3>
+                                    <button
+                                        onClick={() => {
+                                            setUploadType('background-check');
+                                            setShowUploadModal(true);
+                                        }}
+                                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                                    >
+                                        <PlusIcon className="w-4 h-4 mr-2" />
+                                        Upload Documents
+                                    </button>
+                                </div>
+                                {backgroundCheck ? (
+                                    <div className="space-y-4">
+                                        <div className="border border-slate-200 rounded-lg p-4">
+                                            <div className="flex items-center justify-between">
+                                                <div>
+                                                    <h4 className="font-medium text-slate-900">Background Check Status</h4>
+                                                    <p className="text-sm text-slate-600">
+                                                        Date: {employee.background_check_date ?
+                                                            new Date(employee.background_check_date).toLocaleDateString() :
+                                                            'Not specified'
+                                                        }
+                                                    </p>
+                                                </div>
+                                                {getStatusBadge(employee.background_check_status || 'pending_review')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12">
+                                        <DocumentCheckIcon className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                                        <h3 className="text-lg font-medium text-slate-900 mb-2">No Background Check</h3>
+                                        <p className="text-slate-600">Upload background check documents for this employee.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* Edit Modal */}
-            {showEditModal && (
-                <div className="fixed inset-0 bg-slate-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-                    <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-                        <div className="mt-3">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-medium text-slate-900">Edit Employee</h3>
+            {/* Delete Confirmation Modal */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+                    <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                        <div className="mt-3 text-center">
+                            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                                <TrashIcon className="h-6 w-6 text-red-600" />
+                            </div>
+                            <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">Delete Employee</h3>
+                            <div className="mt-2 px-7 py-3">
+                                <p className="text-sm text-gray-500">
+                                    Are you sure you want to delete this employee? This action cannot be undone.
+                                </p>
+                            </div>
+                            <div className="items-center px-4 py-3">
                                 <button
-                                    onClick={() => setShowEditModal(false)}
-                                    className="text-slate-400 hover:text-slate-600"
+                                    onClick={handleDelete}
+                                    className="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300"
                                 >
-                                    <XMarkIcon className="w-6 h-6" />
+                                    Delete
+                                </button>
+                                <button
+                                    onClick={() => setShowDeleteModal(false)}
+                                    className="ml-3 px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                                >
+                                    Cancel
                                 </button>
                             </div>
-                            <form onSubmit={handleEditSubmit} className="space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
-                                        <input
-                                            type="text"
-                                            value={editData.name}
-                                            onChange={(e) => setEditData('name', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">NIP</label>
-                                        <input
-                                            type="text"
-                                            value={editData.nip}
-                                            onChange={(e) => setEditData('nip', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Position</label>
-                                        <input
-                                            type="text"
-                                            value={editData.position}
-                                            onChange={(e) => setEditData('position', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-                                        <input
-                                            type="text"
-                                            value={editData.phone}
-                                            onChange={(e) => setEditData('phone', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                                        <input
-                                            type="email"
-                                            value={editData.email}
-                                            onChange={(e) => setEditData('email', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-slate-700 mb-1">Hire Date</label>
-                                        <input
-                                            type="date"
-                                            value={editData.hire_date}
-                                            onChange={(e) => setEditData('hire_date', e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
-                                        />
-                                    </div>
-                                </div>
-                                <div className="flex justify-end space-x-3 mt-6">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowEditModal(false)}
-                                        className="px-4 py-2 border border-slate-300 rounded-md text-slate-700 hover:bg-slate-50"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        disabled={processing}
-                                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
-                                    >
-                                        {processing ? 'Saving...' : 'Save Changes'}
-                                    </button>
-                                </div>
-                            </form>
                         </div>
                     </div>
                 </div>
             )}
-
-            {/* Delete Confirmation Modal */}
-            {showDeleteModal && (
-                <div className="fixed inset-0 bg-slate-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-                    <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-                        <div className="mt-3 text-center">
-                            <Trash
+        </AuthenticatedLayout>
+    );
+}

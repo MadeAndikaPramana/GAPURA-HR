@@ -304,4 +304,157 @@ class Employee extends Model
                 ];
         }
     }
+
+public function certificateFiles(): HasMany
+{
+return $this->hasMany(FileStorage::class)->where('status', 'stored');
+}
+
+/**
+ * Latest version of each certificate type for this employee
+ */
+public function latestCertificateFiles(): HasMany
+{
+    return $this->hasMany(FileStorage::class)
+        ->where('status', 'stored')
+        ->whereIn('id', function($query) {
+            $query->selectRaw('MAX(id)')
+                ->from('file_storage')
+                ->where('status', 'stored')
+                ->where('employee_id', $this->id)
+                ->groupBy(['employee_id', 'certificate_type_id']);
+        });
+}
+
+/**
+ * Valid (not expired) certificate files
+ */
+public function validCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->where('expiry_date', '>=', now())
+        ->where('issue_date', '<=', now());
+}
+
+/**
+ * Expired certificate files
+ */
+public function expiredCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->where('expiry_date', '<', now());
+}
+
+/**
+ * Files expiring soon (within 30 days)
+ */
+public function expiringSoonCertificateFiles(): HasMany
+{
+    return $this->certificateFiles()
+        ->whereBetween('expiry_date', [now(), now()->addDays(30)]);
+}
+
+/**
+ * Get certificate files for specific certificate type
+ */
+public function getCertificateFilesForType($certificateTypeId)
+{
+    return $this->certificateFiles()
+        ->where('certificate_type_id', $certificateTypeId)
+        ->orderBy('version_number', 'desc')
+        ->get();
+}
+
+/**
+ * Get latest certificate file for specific type
+ */
+public function getLatestCertificateForType($certificateTypeId)
+{
+    return $this->certificateFiles()
+        ->where('certificate_type_id', $certificateTypeId)
+        ->orderBy('version_number', 'desc')
+        ->first();
+}
+
+/**
+ * Check if employee has valid certificate for specific type
+ */
+public function hasValidCertificateForType($certificateTypeId): bool
+{
+    return $this->validCertificateFiles()
+        ->where('certificate_type_id', $certificateTypeId)
+        ->exists();
+}
+
+/**
+ * Get certificate statistics for this employee
+ */
+public function getCertificateStats(): array
+{
+    $files = $this->latestCertificateFiles;
+
+    return [
+        'total_certificates' => $files->count(),
+        'valid_certificates' => $files->where('validity_status', 'valid')->count(),
+        'expiring_soon' => $files->where('validity_status', 'expiring_soon')->count(),
+        'expired_certificates' => $files->where('validity_status', 'expired')->count(),
+        'certificate_types' => $files->pluck('certificate_type_id')->unique()->count(),
+        'total_file_size' => $files->sum('file_size')
+    ];
+}
+
+/**
+ * Get compliance status for this employee
+ */
+public function getComplianceStatus(): array
+{
+    $latestFiles = $this->latestCertificateFiles;
+    $mandatoryTypes = CertificateType::where('is_mandatory', true)->pluck('id');
+
+    $compliance = [];
+    foreach ($mandatoryTypes as $typeId) {
+        $file = $latestFiles->where('certificate_type_id', $typeId)->first();
+        $compliance[$typeId] = [
+            'required' => true,
+            'has_certificate' => $file !== null,
+            'is_valid' => $file ? $file->validity_status === 'valid' : false,
+            'status' => $file ? $file->validity_status : 'missing',
+            'expiry_date' => $file ? $file->expiry_date : null
+        ];
+    }
+
+    return $compliance;
+}
+
+// Add to existing scopes
+
+/**
+ * Scope to get employees with valid certificates for specific type
+ */
+public function scopeWithValidCertificateForType($query, $certificateTypeId)
+{
+    return $query->whereHas('validCertificateFiles', function($q) use ($certificateTypeId) {
+        $q->where('certificate_type_id', $certificateTypeId);
+    });
+}
+
+/**
+ * Scope to get employees missing mandatory certificates
+ */
+public function scopeMissingMandatoryCertificates($query)
+{
+    $mandatoryTypes = CertificateType::where('is_mandatory', true)->pluck('id');
+
+    return $query->whereDoesntHave('validCertificateFiles', function($q) use ($mandatoryTypes) {
+        $q->whereIn('certificate_type_id', $mandatoryTypes);
+    });
+}
+
+/**
+ * Scope to get employees with expiring certificates
+ */
+public function scopeWithExpiringCertificates($query, $days = 30)
+{
+    return $query->whereHas('expiringSoonCertificateFiles');
+}
 }
