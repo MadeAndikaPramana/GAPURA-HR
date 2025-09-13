@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import MemoizedCard from '@/Components/Performance/MemoizedCard';
+import OptimizedPagination from '@/Components/Performance/OptimizedPagination';
 import {
     MagnifyingGlassIcon,
     FunnelIcon,
@@ -10,7 +12,8 @@ import {
     CheckCircleIcon,
     XCircleIcon,
     ClockIcon,
-    PlusIcon
+    PlusIcon,
+    FolderIcon
 } from '@heroicons/react/24/outline';
 
 export default function Index({ auth, certificateTypes, filters = {} }) {
@@ -44,6 +47,40 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
             handleSearch();
         }
     };
+
+    // Memoized calculations for better performance
+    const processedCertificateTypes = useMemo(() => {
+        if (!certificateTypes?.data) return [];
+
+        return certificateTypes.data.map(type => {
+            const stats = type.container_stats || {};
+            const certificateStats = {
+                employees: stats.unique_employees || 0,
+                active: stats.active_certificates || 0,
+                expired: stats.expired_certificates || 0,
+                expiring: stats.expiring_soon_certificates || 0
+            };
+
+            // Determine status based on certificate state
+            let status = 'inactive';
+            if (certificateStats.employees === 0) {
+                status = 'inactive';
+            } else if (certificateStats.expired > 0) {
+                status = 'critical';
+            } else if (certificateStats.expiring > 0) {
+                status = 'warning';
+            } else if (certificateStats.active > 0) {
+                status = 'active';
+            }
+
+            return {
+                ...type,
+                status,
+                certificateStats,
+                href: route('training-types.container', type.id)
+            };
+        });
+    }, [certificateTypes]);
 
     const getCertificateStats = (type) => {
         const stats = type.container_stats || {};
@@ -170,91 +207,54 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
                         </div>
                     </div>
 
-                    {/* Grid Content */}
-                    {certificateTypes?.data?.length > 0 ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                            {certificateTypes.data.map((type) => {
-                                const stats = getCertificateStats(type);
-                                const statusColor = getStatusColor(type);
-
-                                return (
-                                    <Link
+                    {/* Optimized Grid Content */}
+                    {processedCertificateTypes.length > 0 ? (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                {processedCertificateTypes.map((type) => (
+                                    <MemoizedCard
                                         key={type.id}
-                                        href={route('training-types.container', type.id)}
-                                        className="group bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-lg hover:border-green-300 transition-all duration-200 overflow-hidden"
-                                    >
-                                        <div className="p-6">
-                                            {/* Header with Icon */}
-                                            <div className="flex items-start justify-between mb-4">
-                                                <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform duration-200">
-                                                    <AcademicCapIcon className="w-6 h-6 text-white" />
-                                                </div>
+                                        title={type.name}
+                                        subtitle={type.category}
+                                        description={type.description}
+                                        href={type.href}
+                                        icon={<AcademicCapIcon />}
+                                        status={type.status}
+                                        stats={{
+                                            employees: type.certificateStats.employees,
+                                            active: type.certificateStats.active,
+                                            expired: type.certificateStats.expired,
+                                            expiring: type.certificateStats.expiring,
+                                        }}
+                                        metadata={{
+                                            mandatory: type.is_mandatory ? 'Yes' : 'No',
+                                            validity: type.validity_months ? `${type.validity_months} months` : 'N/A',
+                                            code: type.code || 'N/A',
+                                        }}
+                                        badge={
+                                            type.is_mandatory 
+                                                ? { text: 'Mandatory', status: 'active' }
+                                                : type.is_active 
+                                                ? { text: 'Active', status: 'active' }
+                                                : { text: 'Inactive', status: 'inactive' }
+                                        }
+                                        className="hover:border-green-300"
+                                    />
+                                ))}
+                            </div>
 
-                                                {/* Status Dot */}
-                                                <div className={`w-3 h-3 rounded-full ${statusColor}`}></div>
-                                            </div>
-
-                                            {/* Training Type Info */}
-                                            <div className="mb-6">
-                                                <h3 className="font-semibold text-slate-900 text-lg mb-2 group-hover:text-green-700 transition-colors line-clamp-2">
-                                                    {type.name}
-                                                </h3>
-                                                {type.category && (
-                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
-                                                        {type.category}
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            {/* Certificate Statistics */}
-                                            <div className="space-y-4">
-                                                {/* Employee Count */}
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center text-sm text-slate-600">
-                                                        <UserIcon className="w-4 h-4 mr-2" />
-                                                        Employees
-                                                    </div>
-                                                    <span className="font-semibold text-slate-900">
-                                                        {stats.total}
-                                                    </span>
-                                                </div>
-
-                                                {/* Certificate Status Grid */}
-                                                {stats.total > 0 && (
-                                                    <div className="grid grid-cols-3 gap-2 text-xs">
-                                                        <div className="text-center">
-                                                            <div className="flex items-center justify-center w-6 h-6 bg-green-100 rounded-full mx-auto mb-1">
-                                                                <CheckCircleIcon className="w-3 h-3 text-green-600" />
-                                                            </div>
-                                                            <div className="font-medium text-green-700">{stats.active}</div>
-                                                            <div className="text-green-600">Active</div>
-                                                        </div>
-                                                        {stats.expiring > 0 && (
-                                                            <div className="text-center">
-                                                                <div className="flex items-center justify-center w-6 h-6 bg-yellow-100 rounded-full mx-auto mb-1">
-                                                                    <ClockIcon className="w-3 h-3 text-yellow-600" />
-                                                                </div>
-                                                                <div className="font-medium text-yellow-700">{stats.expiring}</div>
-                                                                <div className="text-yellow-600">Expiring</div>
-                                                            </div>
-                                                        )}
-                                                        {stats.expired > 0 && (
-                                                            <div className="text-center">
-                                                                <div className="flex items-center justify-center w-6 h-6 bg-red-100 rounded-full mx-auto mb-1">
-                                                                    <XCircleIcon className="w-3 h-3 text-red-600" />
-                                                                </div>
-                                                                <div className="font-medium text-red-700">{stats.expired}</div>
-                                                                <div className="text-red-600">Expired</div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </Link>
-                                );
-                            })}
-                        </div>
+                            {/* Optimized Pagination */}
+                            <div className="mt-8">
+                                <OptimizedPagination 
+                                    data={certificateTypes}
+                                    preserveState={true}
+                                    preserveScroll={true}
+                                    showStats={true}
+                                    maxVisiblePages={7}
+                                    prefetchPages={true}
+                                />
+                            </div>
+                        </>
                     ) : (
                         <div className="text-center py-16">
                             <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">

@@ -17,65 +17,98 @@ class TrainingTypeController extends Controller
      */
    public function index(Request $request)
 {
-    $query = CertificateType::query();
+    $performanceService = app(\App\Services\PerformanceOptimizationService::class);
+    
+    // Build cache key based on filters
+    $cacheKey = 'training_types_index_' . md5(serialize($request->only(['search', 'status', 'category', 'page'])));
+    
+    $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function () use ($request, $performanceService) {
+        $query = CertificateType::query();
 
-    // Apply filters
-    if ($request->filled('search')) {
-        $search = $request->search;
-        $query->where(function($q) use ($search) {
-            $q->where('name', 'like', "%{$search}%")
-              ->orWhere('code', 'like', "%{$search}%")
-              ->orWhere('category', 'like', "%{$search}%");
-        });
-    }
-
-    if ($request->filled('status')) {
-        switch ($request->status) {
-            case 'active':
-                $query->where('is_active', true);
-                break;
-            case 'inactive':
-                $query->where('is_active', false);
-                break;
-            case 'mandatory':
-                $query->where('is_mandatory', true);
-                break;
+        // Apply filters
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('code', 'like', "%{$search}%")
+                  ->orWhere('category', 'like', "%{$search}%");
+            });
         }
-    }
 
-    if ($request->filled('category')) {
-        $query->where('category', $request->category);
-    }
+        if ($request->filled('status')) {
+            switch ($request->status) {
+                case 'active':
+                    $query->where('is_active', true);
+                    break;
+                case 'inactive':
+                    $query->where('is_active', false);
+                    break;
+                case 'mandatory':
+                    $query->where('is_mandatory', true);
+                    break;
+            }
+        }
 
-    // Get certificate types with container statistics
-    $certificateTypes = $query->with(['employeeCertificates' => function($query) {
-            $query->select('certificate_type_id', 'employee_id', 'status');
-        }])
-        ->orderBy('name')
-        ->paginate(12) // Grid layout works better with 12 items per page
-        ->withQueryString();
+        if ($request->filled('category')) {
+            $query->where('category', $request->category);
+        }
 
-    // Add container statistics to each certificate type
-    $certificateTypes->getCollection()->transform(function ($certificateType) {
-        $certificates = $certificateType->employeeCertificates;
+        // Optimized query with eager loading and selective fields
+        $certificateTypes = $query->select([
+                'id', 'name', 'code', 'category', 'is_active', 'is_mandatory', 
+                'validity_months', 'warning_days', 'description'
+            ])
+            ->withCount([
+                'employeeCertificates as total_certificates',
+                'employeeCertificates as active_certificates' => function ($query) {
+                    $query->where('status', 'active');
+                },
+                'employeeCertificates as expired_certificates' => function ($query) {
+                    $query->where('status', 'expired');
+                },
+                'employeeCertificates as expiring_soon_certificates' => function ($query) {
+                    $query->where('status', 'expiring_soon');
+                },
+            ])
+            ->withCount([
+                'employeeCertificates as unique_employees' => function ($query) {
+                    $query->distinct('employee_id');
+                }
+            ])
+            ->orderBy('name')
+            ->paginate(12)
+            ->withQueryString();
 
-        $containerStats = [
-            'total_certificates' => $certificates->count(),
-            'active_certificates' => $certificates->where('status', 'active')->count(),
-            'expired_certificates' => $certificates->where('status', 'expired')->count(),
-            'expiring_soon_certificates' => $certificates->where('status', 'expiring_soon')->count(),
-            'unique_employees' => $certificates->unique('employee_id')->count(),
+        // Transform to add container_stats without additional queries
+        $certificateTypes->getCollection()->transform(function ($certificateType) {
+            $certificateType->container_stats = [
+                'total_certificates' => $certificateType->total_certificates,
+                'active_certificates' => $certificateType->active_certificates,
+                'expired_certificates' => $certificateType->expired_certificates,
+                'expiring_soon_certificates' => $certificateType->expiring_soon_certificates,
+                'unique_employees' => $certificateType->unique_employees,
+            ];
+
+            // Remove count attributes to clean up response
+            unset($certificateType->total_certificates, $certificateType->active_certificates, 
+                  $certificateType->expired_certificates, $certificateType->expiring_soon_certificates,
+                  $certificateType->unique_employees);
+
+            return $certificateType;
+        });
+
+        return [
+            'certificateTypes' => $certificateTypes,
+            'stats' => $performanceService->getCertificateTypeStatistics()->count() > 0 
+                ? collect($performanceService->getCertificateTypeStatistics())->take(10) 
+                : $this->getStats(),
         ];
-
-        $certificateType->container_stats = $containerStats;
-
-        return $certificateType;
     });
 
     return Inertia::render('TrainingTypes/Index', [
-        'certificateTypes' => $certificateTypes,
+        'certificateTypes' => $data['certificateTypes'],
         'filters' => $request->only(['search', 'status', 'category']),
-        'stats' => $this->getStats(),
+        'stats' => $data['stats'],
     ]);
 }
 
