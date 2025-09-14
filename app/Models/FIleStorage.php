@@ -266,7 +266,7 @@ class FileStorage extends Model
     /**
      * Mark file upload as failed
      */
-    public function markAsFailed(string $error = null): void
+    public function markAsFailed(?string $error = null): void
     {
         $metadata = $this->metadata ?? [];
         if ($error) {

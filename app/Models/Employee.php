@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
+use App\Services\EmployeeContainerService;
 
 class Employee extends Model
 {
@@ -27,6 +28,24 @@ class Employee extends Model
         'container_created_at' => 'datetime',
         'container_last_updated' => 'datetime'
     ];
+
+    /**
+     * Boot the model to automatically create containers
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::created(function ($employee) {
+            // Automatically create container when employee is created
+            try {
+                $containerService = app(EmployeeContainerService::class);
+                $containerService->initializeContainer($employee);
+            } catch (\Exception $e) {
+                \Log::error("Failed to auto-create container for employee {$employee->employee_id}: " . $e->getMessage());
+            }
+        });
+    }
 
     // ===== RELATIONSHIPS =====
 

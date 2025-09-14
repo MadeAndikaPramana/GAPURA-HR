@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Storage;
+use App\Services\EmployeeContainerService;
 
 class SDMController extends Controller
 {
@@ -510,5 +511,62 @@ class SDMController extends Controller
             'results' => $results,
             'timestamp' => now()
         ]);
+    }
+
+    /**
+     * Initialize containers for all employees without containers
+     */
+    public function initializeContainers()
+    {
+        try {
+            $containerService = app(EmployeeContainerService::class);
+            $results = $containerService->initializeAllMissingContainers();
+
+            $message = "Container initialization completed! ";
+            $message .= "Processed: {$results['total_processed']}, ";
+            $message .= "Success: {$results['success']}, ";
+            $message .= "Failed: {$results['failed']}";
+
+            if (!empty($results['errors'])) {
+                $message .= ". Some errors occurred - check logs for details.";
+            }
+
+            return redirect()->route('sdm.index')
+                ->with($results['failed'] > 0 ? 'warning' : 'success', $message);
+
+        } catch (\Exception $e) {
+            return redirect()->route('sdm.index')
+                ->with('error', 'Failed to initialize containers: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get container statistics for the SDM dashboard
+     */
+    public function getContainerStatistics()
+    {
+        $containerService = app(EmployeeContainerService::class);
+        return response()->json($containerService->getContainerStatistics());
+    }
+
+    /**
+     * Repair container for specific employee
+     */
+    public function repairEmployeeContainer(Employee $employee)
+    {
+        try {
+            $containerService = app(EmployeeContainerService::class);
+            
+            if ($containerService->repairContainer($employee)) {
+                return redirect()->route('sdm.index')
+                    ->with('success', "Container for {$employee->name} has been repaired successfully.");
+            } else {
+                return redirect()->route('sdm.index')
+                    ->with('error', "Failed to repair container for {$employee->name}.");
+            }
+        } catch (\Exception $e) {
+            return redirect()->route('sdm.index')
+                ->with('error', "Error repairing container: " . $e->getMessage());
+        }
     }
 }

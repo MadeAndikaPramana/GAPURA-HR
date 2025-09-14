@@ -188,8 +188,25 @@ class EmployeeContainerController extends Controller
                                                ];
                                            });
 
-        return Inertia::render('Employees/Show', [
+        // Calculate statistics from employee certificates
+        $certificateStats = $employee->getCertificateStatistics();
+
+        return Inertia::render('Employees/Container', [
             'employee' => $employee,
+            'statistics' => [
+                'total' => $certificateStats['total'],
+                'active' => $certificateStats['active'],
+                'expired' => $certificateStats['expired'],
+                'expiring_soon' => $certificateStats['expiring_soon'],
+                'has_background_check' => !empty($employee->background_check_files)
+            ],
+            'profile' => [
+                'position' => $employee->position,
+                'department' => $employee->department?->name,
+                'hire_date' => $employee->hire_date?->format('d M Y'),
+                'email' => $employee->email,
+                'phone' => $employee->phone,
+            ],
             'container' => $containerData,
             'certificateTypes' => $certificateTypes,
             'recentActivity' => $recentActivity,

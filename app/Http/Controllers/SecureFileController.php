@@ -24,7 +24,7 @@ class SecureFileController extends Controller
     /**
      * Secure file download with token-based authentication
      */
-    public function secureDownload(Request $request, string $token, string $filename = null): StreamedResponse
+    public function secureDownload(Request $request, string $token, ?string $filename = null): StreamedResponse
     {
         try {
             // Validate token

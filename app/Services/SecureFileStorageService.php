@@ -25,7 +25,7 @@ class SecureFileStorageService
     const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'];
     
     private string $privateStoragePath = 'containers';
-    private string $cacheTtl = 3600; // 1 hour
+    private int $cacheTtl = 3600; // 1 hour
 
     /**
      * Store file securely with validation and metadata tracking

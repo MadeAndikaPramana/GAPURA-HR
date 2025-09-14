@@ -13,19 +13,27 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('employees', function (Blueprint $table) {
-            // Add NIP field (can change, unique but separate from primary key)
-            $table->string('nip', 20)->unique()->nullable()->after('employee_id')
-                  ->comment('Employee NIP number (can change over time)');
+            // Add NIP field only if it doesn't exist
+            if (!Schema::hasColumn('employees', 'nip')) {
+                $table->string('nip', 20)->unique()->nullable()->after('employee_id')
+                      ->comment('Employee NIP number (can change over time)');
+            }
 
-            // Add container metadata
-            $table->timestamp('container_created_at')->nullable()->after('profile_photo_path')
-                  ->comment('When employee container was first created');
+            // Add container metadata only if they don't exist
+            if (!Schema::hasColumn('employees', 'container_created_at')) {
+                $table->timestamp('container_created_at')->nullable()->after('profile_photo_path')
+                      ->comment('When employee container was first created');
+            }
 
-            $table->integer('total_files_count')->default(0)->after('container_created_at')
-                  ->comment('Total count of files in employee container');
+            if (!Schema::hasColumn('employees', 'total_files_count')) {
+                $table->integer('total_files_count')->default(0)->after('container_created_at')
+                      ->comment('Total count of files in employee container');
+            }
 
-            // Index for NIP lookups
-            $table->index(['nip', 'status'], 'idx_nip_status');
+            // Add index for NIP lookups if it doesn't exist
+            if (!Schema::hasIndex('employees', 'idx_nip_status')) {
+                $table->index(['nip', 'status'], 'idx_nip_status');
+            }
         });
     }
 

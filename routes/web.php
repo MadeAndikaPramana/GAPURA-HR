@@ -26,13 +26,13 @@ require __DIR__.'/auth.php';
 */
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // Dashboard - redirect to employee containers
+    // Landing page - redirect to SDM (Employee Master Data Management)
     Route::get('/', function () {
-        return redirect()->route('employee-containers.index');
+        return redirect()->route('sdm.index');
     });
 
     Route::get('/dashboard', function () {
-        return redirect()->route('employee-containers.index');
+        return redirect()->route('sdm.index');
     })->name('dashboard');
 
     /*
@@ -116,6 +116,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // AJAX Endpoints
         Route::get('/search', [SDMController::class, 'search'])->name('search');
         Route::get('/api/stats', [SDMController::class, 'getStatistics'])->name('api.stats');
+        
+        // Container Management
+        Route::post('/initialize-containers', [SDMController::class, 'initializeContainers'])->name('initialize-containers');
+        Route::get('/api/container-stats', [SDMController::class, 'getContainerStatistics'])->name('api.container-stats');
+        Route::post('/{employee}/repair-container', [SDMController::class, 'repairEmployeeContainer'])->name('repair-container');
     });
 
     /*

@@ -152,7 +152,7 @@ class DatabaseSeeder extends Seeder
                     'position' => 'Equipment Maintenance Technician',
                     'hire_date' => Carbon::parse('2020-03-15'),
                     'status' => 'active',
-                    'background_check_status' => 'cleared',
+                    'background_check_status' => 'completed',
                     'background_check_date' => Carbon::parse('2020-02-01')
                 ],
                 [
@@ -163,7 +163,7 @@ class DatabaseSeeder extends Seeder
                     'position' => 'Ground Operations Supervisor',
                     'hire_date' => Carbon::parse('2018-07-10'),
                     'status' => 'active',
-                    'background_check_status' => 'cleared',
+                    'background_check_status' => 'completed',
                     'background_check_date' => Carbon::parse('2018-06-15')
                 ]
             ];

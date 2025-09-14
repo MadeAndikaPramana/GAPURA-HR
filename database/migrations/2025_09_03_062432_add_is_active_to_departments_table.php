@@ -13,10 +13,15 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('departments', function (Blueprint $table) {
-            $table->boolean('is_active')->default(true)->after('description');
+            // Only add column if it doesn't exist
+            if (!Schema::hasColumn('departments', 'is_active')) {
+                $table->boolean('is_active')->default(true)->after('description');
+            }
 
-            // Add index for better performance when filtering active departments
-            $table->index('is_active');
+            // Add index if it doesn't exist
+            if (!Schema::hasIndex('departments', 'departments_is_active_index')) {
+                $table->index('is_active');
+            }
         });
     }
 

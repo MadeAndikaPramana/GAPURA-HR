@@ -22,9 +22,38 @@ import {
     DocumentTextIcon
 } from '@heroicons/react/24/outline';
 
-export default function Container({ auth, employee, statistics, profile }) {
+export default function Container({ auth, employee = {}, statistics = {}, profile = {} }) {
     const [activeTab, setActiveTab] = useState('certificates');
     const [showAddCertificate, setShowAddCertificate] = useState(false);
+
+    // Early return if employee data is not available
+    if (!employee || !employee.id) {
+        return (
+            <AuthenticatedLayout user={auth.user}>
+                <Head title="Employee Container" />
+                <div className="py-6">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="text-center py-12">
+                            <ExclamationTriangleIcon className="mx-auto h-12 w-12 text-red-500" />
+                            <h3 className="mt-2 text-lg font-medium text-gray-900">Employee Not Found</h3>
+                            <p className="mt-1 text-sm text-gray-500">
+                                The requested employee container could not be loaded.
+                            </p>
+                            <div className="mt-6">
+                                <Link
+                                    href={route('employee-containers.index')}
+                                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+                                >
+                                    <ArrowLeftIcon className="w-4 h-4 mr-2" />
+                                    Back to Containers
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </AuthenticatedLayout>
+        );
+    }
 
     // Status badge helpers
     const getStatusBadge = (status) => {
@@ -49,7 +78,7 @@ export default function Container({ auth, employee, statistics, profile }) {
 
     return (
         <AuthenticatedLayout user={auth.user}>
-            <Head title={`Employee Container - ${employee.name}`} />
+            <Head title={`Employee Container - ${employee.name || 'Unknown'}`} />
 
             <div className="py-6">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -68,10 +97,10 @@ export default function Container({ auth, employee, statistics, profile }) {
                                     <h1 className="text-3xl font-bold text-slate-900 flex items-center">
                                         <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center mr-4">
                                             <span className="text-white font-bold text-lg">
-                                                {employee.name.charAt(0).toUpperCase()}
+                                                {employee.name ? employee.name.charAt(0).toUpperCase() : 'U'}
                                             </span>
                                         </div>
-                                        {employee.name}
+                                        {employee.name || 'Unknown Employee'}
                                     </h1>
                                     <p className="text-lg text-slate-600 mt-1">
                                         {profile?.position || 'No Position'} • {profile?.department || 'No Department'}
