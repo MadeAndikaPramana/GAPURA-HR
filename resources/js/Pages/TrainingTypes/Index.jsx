@@ -216,25 +216,16 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
                                         key={type.id}
                                         title={type.name}
                                         subtitle={type.category}
-                                        description={type.description}
                                         href={type.href}
                                         icon={<AcademicCapIcon />}
                                         status={type.status}
-                                        stats={{
-                                            employees: type.certificateStats.employees,
-                                            active: type.certificateStats.active,
-                                            expired: type.certificateStats.expired,
-                                            expiring: type.certificateStats.expiring,
-                                        }}
                                         metadata={{
-                                            mandatory: type.is_mandatory ? 'Yes' : 'No',
                                             validity: type.validity_months ? `${type.validity_months} months` : 'N/A',
-                                            code: type.code || 'N/A',
                                         }}
                                         badge={
-                                            type.is_mandatory 
+                                            type.is_mandatory
                                                 ? { text: 'Mandatory', status: 'active' }
-                                                : type.is_active 
+                                                : type.is_active
                                                 ? { text: 'Active', status: 'active' }
                                                 : { text: 'Inactive', status: 'inactive' }
                                         }
