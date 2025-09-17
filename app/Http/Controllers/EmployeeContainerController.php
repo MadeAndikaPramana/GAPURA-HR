@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Str;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Carbon\Carbon;
 
@@ -705,6 +706,7 @@ class EmployeeContainerController extends Controller
         return response()->json($results);
     }
 
+
     /**
      * Export container data
      */
@@ -712,7 +714,7 @@ class EmployeeContainerController extends Controller
     {
         // This method would implement Excel/CSV export functionality
         // For now, return a basic implementation
-        
+
         $query = Employee::with(['department', 'employeeCertificates.certificateType']);
 
         // Apply same filters as index method

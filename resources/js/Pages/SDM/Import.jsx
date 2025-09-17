@@ -15,11 +15,15 @@ import {
     DocumentIcon
 } from '@heroicons/react/24/outline';
 
-export default function Import({ auth, departments, importHistory = [] }) {
+export default function Import({ auth, departments, importHistory = [], flash }) {
     const { data, setData, post, processing, errors, progress } = useForm({
         excel_file: null,
         update_existing: false,
-        create_departments: false
+        create_departments: false,
+        sync_mode: 'merge',
+        soft_delete: true,
+        dry_run: false,
+        is_sync: false
     });
 
     const [dragActive, setDragActive] = useState(false);
@@ -61,7 +65,25 @@ export default function Import({ auth, departments, importHistory = [] }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        post(route('sdm.import.process'));
+        console.log('=== FORM SUBMISSION DEBUG ===');
+        console.log('Form data:', data);
+        console.log('Is sync mode:', data.is_sync);
+        console.log('Has file:', !!data.excel_file);
+        console.log('Processing state:', processing);
+
+        if (!data.excel_file) {
+            console.error('No file selected!');
+            alert('Please select a file first');
+            return;
+        }
+
+        if (data.is_sync) {
+            console.log('Submitting to sync route:', route('sdm.upload-sync'));
+            post(route('sdm.upload-sync'));
+        } else {
+            console.log('Submitting to regular import route:', route('sdm.import.process'));
+            post(route('sdm.import.process'));
+        }
     };
 
     const downloadTemplate = () => {
@@ -204,15 +226,51 @@ export default function Import({ auth, departments, importHistory = [] }) {
                                                 </div>
                                             )}
 
+                                            {/* Import Mode Selection */}
+                                            <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                                                <h4 className="text-sm font-semibold text-gray-900 mb-3">Import Mode</h4>
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center">
+                                                        <input
+                                                            type="radio"
+                                                            id="mode_regular"
+                                                            name="import_mode"
+                                                            checked={!data.is_sync}
+                                                            onChange={() => setData('is_sync', false)}
+                                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                        />
+                                                        <label htmlFor="mode_regular" className="ml-2 text-sm">
+                                                            <span className="font-medium text-gray-900">Regular Import</span>
+                                                            <span className="block text-gray-500">Add new employees, optionally update existing ones</span>
+                                                        </label>
+                                                    </div>
+                                                    <div className="flex items-center">
+                                                        <input
+                                                            type="radio"
+                                                            id="mode_sync"
+                                                            name="import_mode"
+                                                            checked={data.is_sync}
+                                                            onChange={() => setData('is_sync', true)}
+                                                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                        />
+                                                        <label htmlFor="mode_sync" className="ml-2 text-sm">
+                                                            <span className="font-medium text-gray-900">Synchronization Mode</span>
+                                                            <span className="block text-gray-500">Replace/merge data to match exactly what's in the file</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+
                                             {/* Import Options */}
-                                            <div className="space-y-3">
+                                            <div className={`space-y-3 ${data.is_sync ? 'opacity-50' : ''}`}>
                                                 <div className="flex items-center">
                                                     <input
                                                         type="checkbox"
                                                         id="update_existing"
                                                         checked={data.update_existing}
                                                         onChange={(e) => setData('update_existing', e.target.checked)}
-                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                        disabled={data.is_sync}
+                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                                                     />
                                                     <label htmlFor="update_existing" className="ml-2 text-sm text-gray-700">
                                                         Update existing employees (based on Employee ID)
@@ -225,7 +283,8 @@ export default function Import({ auth, departments, importHistory = [] }) {
                                                         id="create_departments"
                                                         checked={data.create_departments}
                                                         onChange={(e) => setData('create_departments', e.target.checked)}
-                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                        disabled={data.is_sync}
+                                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
                                                     />
                                                     <label htmlFor="create_departments" className="ml-2 text-sm text-gray-700">
                                                         Auto-create new departments if not found
@@ -242,12 +301,12 @@ export default function Import({ auth, departments, importHistory = [] }) {
                                                 {processing ? (
                                                     <>
                                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                                        Importing... {progress && `${progress.percentage}%`}
+                                                        {data.is_sync ? 'Synchronizing' : 'Importing'}... {progress && `${progress.percentage}%`}
                                                     </>
                                                 ) : (
                                                     <>
                                                         <DocumentArrowUpIcon className="w-4 h-4 mr-2" />
-                                                        Import Employees
+                                                        {data.is_sync ? (data.dry_run ? 'Preview Sync' : 'Synchronize Data') : 'Import Employees'}
                                                     </>
                                                 )}
                                             </button>

@@ -172,20 +172,65 @@ class SDMController extends Controller
         return Inertia::render('SDM/Import', [
             'departments' => Department::all(['id', 'name', 'code']),
             'importHistory' => $this->getRecentImports(),
-            'mpgaImportHistory' => $this->getRecentMPGAImports()
+            'mpgaImportHistory' => $this->getRecentMPGAImports(),
+            'flash' => [
+                'success' => session('success'),
+                'error' => session('error'),
+                'info' => session('info'),
+                'import_results' => session('import_results'),
+                'import_report' => session('import_report')
+            ]
         ]);
     }
 
     /**
-     * Download Excel template
+     * Download Excel template with current employee data
      */
-    public function downloadTemplate()
+    public function downloadTemplate(Request $request)
+    {
+        try {
+            $filters = [
+                'department_id' => $request->department_id,
+                'search' => $request->search,
+            ];
+
+            $includeInactive = $request->boolean('include_inactive', false);
+
+            $export = new \App\Exports\EmployeeDataExport($filters, $includeInactive);
+            $stats = $export->getExportStatistics();
+
+            $filename = 'employee_data_' . date('Y-m-d_H-i-s') . '.xlsx';
+
+            \Illuminate\Support\Facades\Log::info('Employee data template downloaded', [
+                'filename' => $filename,
+                'filters' => $filters,
+                'include_inactive' => $includeInactive,
+                'statistics' => $stats,
+                'user_id' => auth()->id() ?? 'guest'
+            ]);
+
+            return Excel::download($export, $filename);
+
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to download employee template', [
+                'error' => $e->getMessage(),
+                'user_id' => auth()->id() ?? 'guest'
+            ]);
+
+            return back()->with('error', 'Failed to download template: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Download basic Excel template (legacy)
+     */
+    public function downloadBasicTemplate()
     {
         return $this->createExcelTemplate();
     }
 
     /**
-     * Import employees from Excel
+     * Import employees from Excel (legacy method)
      */
     public function import(Request $request)
     {
@@ -218,19 +263,96 @@ class SDMController extends Controller
             $this->logImportActivity($request, $results);
 
             $message = "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}";
-            
+
             if (isset($results['containers_created']) && $results['containers_created'] > 0) {
                 $message .= ", Containers created: {$results['containers_created']}";
             }
-            
+
             if (isset($results['container_errors']) && $results['container_errors'] > 0) {
                 $message .= ", Container errors: {$results['container_errors']}";
             }
-            
+
             return back()->with('success', $message)->with('import_results', $results);
 
         } catch (\Exception $e) {
             return back()->with('error', 'Import failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Upload and synchronize employee data
+     */
+    public function uploadSync(Request $request)
+    {
+        // Debug: Log incoming request
+        \Illuminate\Support\Facades\Log::info('Upload sync started', [
+            'user_id' => auth()->id(),
+            'request_data' => $request->except(['excel_file']),
+            'file_info' => [
+                'name' => $request->file('excel_file')?->getClientOriginalName(),
+                'size' => $request->file('excel_file')?->getSize(),
+                'mime' => $request->file('excel_file')?->getMimeType()
+            ]
+        ]);
+
+        $request->validate([
+            'excel_file' => 'required|file|mimes:xlsx,xls|max:10240', // 10MB max
+            'sync_mode' => 'required|in:replace,merge,update_only',
+            'soft_delete' => 'boolean',
+            'dry_run' => 'boolean',
+        ]);
+
+        try {
+            $options = [
+                'sync_mode' => $request->sync_mode,
+                'soft_delete' => $request->boolean('soft_delete', true),
+                'dry_run' => $request->boolean('dry_run', false),
+                'auto_create_containers' => true,
+                'update_existing' => true,
+                'create_missing' => true,
+            ];
+
+            \Illuminate\Support\Facades\Log::info('Creating EmployeeSyncImport', ['options' => $options]);
+
+            $import = new \App\Imports\EmployeeSyncImport($options);
+
+            \Illuminate\Support\Facades\Log::info('Starting Excel import');
+            Excel::import($import, $request->file('excel_file'));
+            \Illuminate\Support\Facades\Log::info('Excel import completed');
+
+            $results = $import->getImportResults();
+            $report = $import->generateReport();
+
+            \Illuminate\Support\Facades\Log::info('Employee synchronization completed', [
+                'results' => $results,
+                'options' => $options,
+                'user_id' => auth()->id() ?? 'guest'
+            ]);
+
+            if ($options['dry_run']) {
+                return back()->with('info', 'Dry run completed. No changes were made.')
+                           ->with('import_results', $results)
+                           ->with('import_report', $report);
+            } else {
+                $message = "Synchronization completed successfully. " .
+                          "Processed: {$results['processed']}, " .
+                          "Created: {$results['created']}, " .
+                          "Updated: {$results['updated']}, " .
+                          "Errors: {$results['errors']}";
+
+                return back()->with('success', $message)
+                           ->with('import_results', $results)
+                           ->with('import_report', $report);
+            }
+
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Employee synchronization failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => auth()->id() ?? 'guest'
+            ]);
+
+            return back()->with('error', 'Synchronization failed: ' . $e->getMessage());
         }
     }
 

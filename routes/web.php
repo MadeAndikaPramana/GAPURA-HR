@@ -106,6 +106,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/template/download', [SDMController::class, 'downloadTemplate'])->name('download-template');
         Route::get('/export', [SDMController::class, 'export'])->name('export');
 
+        // Employee Data Synchronization Routes
+        Route::post('/upload-sync', [SDMController::class, 'uploadSync'])->name('upload-sync');
+
         // MPGA Training Import Routes
         Route::post('/import-mpga', [SDMController::class, 'importMPGA'])->name('import.mpga');
         Route::get('/mpga-template/download', [SDMController::class, 'downloadMPGATemplate'])->name('download-mpga-template');
