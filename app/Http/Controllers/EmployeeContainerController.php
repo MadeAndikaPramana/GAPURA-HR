@@ -708,31 +708,33 @@ class EmployeeContainerController extends Controller
 
 
     /**
-     * Export container data
+     * Export container data to Excel
      */
     public function exportContainers(Request $request)
     {
-        // This method would implement Excel/CSV export functionality
-        // For now, return a basic implementation
+        // Prepare filters
+        $filters = [];
 
-        $query = Employee::with(['department', 'employeeCertificates.certificateType']);
-
-        // Apply same filters as index method
         if ($request->filled('department_id')) {
-            $query->byDepartment($request->department_id);
+            $filters['department_id'] = $request->department_id;
+        }
+
+        if ($request->filled('search')) {
+            $filters['search'] = $request->search;
         }
 
         if ($request->filled('status')) {
-            // Apply status filters similar to index method
+            $filters['status'] = $request->status;
         }
 
-        $employees = $query->get();
+        // Generate filename with timestamp
+        $filename = 'employee-containers-' . date('Y-m-d-His') . '.xlsx';
 
-        // Would typically use Laravel Excel here
-        return response()->json([
-            'message' => 'Export functionality would be implemented here',
-            'count' => $employees->count()
-        ]);
+        // Export to Excel
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \App\Exports\ContainersExport($filters),
+            $filename
+        );
     }
 
     /**
@@ -844,6 +846,170 @@ class EmployeeContainerController extends Controller
                     'url' => route('employee-containers.show', $cert->employee_id)
                 ];
             })
+        ]);
+    }
+
+    /**
+     * Generate compliance report for all employees
+     */
+    public function generateComplianceReport(Request $request)
+    {
+        $employees = Employee::with([
+            'department',
+            'employeeCertificates.certificateType'
+        ])->get();
+
+        $report = [
+            'generated_at' => now()->format('Y-m-d H:i:s'),
+            'total_employees' => $employees->count(),
+            'summary' => [
+                'total_certificates' => EmployeeCertificate::count(),
+                'active_certificates' => EmployeeCertificate::where('status', 'active')->count(),
+                'expired_certificates' => EmployeeCertificate::where('status', 'expired')->count(),
+                'expiring_soon' => EmployeeCertificate::where('status', 'expiring_soon')->count(),
+            ],
+            'by_department' => [],
+            'employees_with_issues' => []
+        ];
+
+        // Group by department
+        $byDepartment = $employees->groupBy('department.name');
+        foreach ($byDepartment as $deptName => $deptEmployees) {
+            $deptCerts = $deptEmployees->pluck('employeeCertificates')->flatten();
+
+            $report['by_department'][] = [
+                'department' => $deptName ?? 'No Department',
+                'total_employees' => $deptEmployees->count(),
+                'total_certificates' => $deptCerts->count(),
+                'active' => $deptCerts->where('status', 'active')->count(),
+                'expired' => $deptCerts->where('status', 'expired')->count(),
+                'expiring_soon' => $deptCerts->where('status', 'expiring_soon')->count(),
+            ];
+        }
+
+        // Employees with compliance issues
+        foreach ($employees as $employee) {
+            $expiredCount = $employee->employeeCertificates->where('status', 'expired')->count();
+            $expiringCount = $employee->employeeCertificates->where('status', 'expiring_soon')->count();
+
+            if ($expiredCount > 0 || $expiringCount > 0) {
+                $report['employees_with_issues'][] = [
+                    'employee_id' => $employee->employee_id,
+                    'name' => $employee->name,
+                    'department' => $employee->department?->name ?? 'No Department',
+                    'expired_certificates' => $expiredCount,
+                    'expiring_certificates' => $expiringCount,
+                ];
+            }
+        }
+
+        // Return as JSON or Excel based on request
+        if ($request->wantsJson() || $request->get('format') === 'json') {
+            return response()->json($report);
+        }
+
+        // Export to Excel
+        return $this->exportComplianceReportToExcel($report);
+    }
+
+    /**
+     * Generate daily compliance report (for cron jobs)
+     */
+    public function generateDailyComplianceReport()
+    {
+        $report = $this->generateComplianceReport(request());
+
+        // In production, this would:
+        // 1. Generate PDF/Excel report
+        // 2. Store in storage/reports
+        // 3. Email to administrators
+        // 4. Log the generation
+
+        Log::info('Daily compliance report generated', [
+            'total_employees' => $report->getData()->total_employees ?? 0,
+            'timestamp' => now()
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Daily compliance report generated successfully'
+        ]);
+    }
+
+    /**
+     * Export compliance report to Excel
+     */
+    private function exportComplianceReportToExcel($report)
+    {
+        $filename = 'compliance-report-' . date('Y-m-d-His') . '.xlsx';
+
+        // Create a simple export using arrays
+        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        // Title
+        $sheet->setCellValue('A1', 'Certificate Compliance Report');
+        $sheet->mergeCells('A1:F1');
+        $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+
+        // Summary
+        $row = 3;
+        $sheet->setCellValue('A' . $row, 'Report Generated:');
+        $sheet->setCellValue('B' . $row, $report['generated_at']);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Employees:');
+        $sheet->setCellValue('B' . $row, $report['total_employees']);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Total Certificates:');
+        $sheet->setCellValue('B' . $row, $report['summary']['total_certificates']);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Active:');
+        $sheet->setCellValue('B' . $row, $report['summary']['active_certificates']);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Expired:');
+        $sheet->setCellValue('B' . $row, $report['summary']['expired_certificates']);
+        $row++;
+        $sheet->setCellValue('A' . $row, 'Expiring Soon:');
+        $sheet->setCellValue('B' . $row, $report['summary']['expiring_soon']);
+
+        // Department breakdown
+        $row += 3;
+        $sheet->setCellValue('A' . $row, 'Department Breakdown');
+        $sheet->getStyle('A' . $row)->getFont()->setBold(true);
+        $row++;
+
+        $headers = ['Department', 'Employees', 'Total Certs', 'Active', 'Expired', 'Expiring'];
+        $col = 'A';
+        foreach ($headers as $header) {
+            $sheet->setCellValue($col . $row, $header);
+            $sheet->getStyle($col . $row)->getFont()->setBold(true);
+            $col++;
+        }
+        $row++;
+
+        foreach ($report['by_department'] as $dept) {
+            $sheet->setCellValue('A' . $row, $dept['department']);
+            $sheet->setCellValue('B' . $row, $dept['total_employees']);
+            $sheet->setCellValue('C' . $row, $dept['total_certificates']);
+            $sheet->setCellValue('D' . $row, $dept['active']);
+            $sheet->setCellValue('E' . $row, $dept['expired']);
+            $sheet->setCellValue('F' . $row, $dept['expiring_soon']);
+            $row++;
+        }
+
+        // Auto size columns
+        foreach (range('A', 'F') as $col) {
+            $sheet->getColumnDimension($col)->setAutoSize(true);
+        }
+
+        // Write to file
+        $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+
+        // Return as download
+        return response()->streamDownload(function() use ($writer) {
+            $writer->save('php://output');
+        }, $filename, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
 }
