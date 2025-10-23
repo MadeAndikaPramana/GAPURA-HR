@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Pagination from '@/Components/Pagination';
+import { EmptyState } from '@/Components/UI';
 import PropTypes from 'prop-types';
 import {
     MagnifyingGlassIcon,
@@ -527,25 +528,17 @@ export default function Index({ auth, containers, statistics, departments = [], 
                             ))}
                         </div>
                     ) : (
-                        <div className="text-center py-12">
-                            <FolderIcon className="mx-auto h-12 w-12 text-gray-400" />
-                            <h3 className="mt-2 text-sm font-medium text-gray-900">No containers found</h3>
-                            <p className="mt-1 text-sm text-gray-500">
-                                {searchTerm || selectedDepartment || selectedStatus
-                                    ? 'Try adjusting your search criteria.'
-                                    : 'No employee containers have been created yet.'}
-                            </p>
-                            {(searchTerm || selectedDepartment || selectedStatus) && (
-                                <div className="mt-6">
-                                    <button
-                                        onClick={clearFilters}
-                                        className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                                    >
-                                        Clear filters
-                                    </button>
-                                </div>
-                            )}
-                        </div>
+                        <EmptyState
+                            icon={FolderIcon}
+                            title="No containers found"
+                            description={
+                                searchTerm || selectedDepartment || selectedStatus
+                                    ? 'Try adjusting your search criteria to find employee containers.'
+                                    : 'No employee containers have been created yet. Containers are automatically created when employees are added.'
+                            }
+                            actionLabel={searchTerm || selectedDepartment || selectedStatus ? 'Clear Filters' : null}
+                            actionOnClick={searchTerm || selectedDepartment || selectedStatus ? clearFilters : null}
+                        />
                     )}
 
                     {/* Pagination */}

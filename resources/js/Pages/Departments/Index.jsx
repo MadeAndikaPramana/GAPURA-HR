@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { EmptyState } from '@/Components/UI';
 import {
     BuildingOfficeIcon,
     MagnifyingGlassIcon,
@@ -274,22 +275,17 @@ export default function Index({ auth, departments, stats, filters = {} }) {
 
                         {/* Empty State */}
                         {(!departments?.data || departments.data.length === 0) && (
-                            <div className="text-center py-12">
-                                <BuildingOfficeIcon className="mx-auto h-12 w-12 text-gray-400" />
-                                <h3 className="mt-2 text-sm font-medium text-gray-900">No departments found</h3>
-                                <p className="mt-1 text-sm text-gray-500">
-                                    Get started by creating a new department.
-                                </p>
-                                <div className="mt-6">
-                                    <Link
-                                        href={route('departments.create')}
-                                        className="btn-primary"
-                                    >
-                                        <PlusIcon className="w-4 h-4 mr-2" />
-                                        Add First Department
-                                    </Link>
-                                </div>
-                            </div>
+                            <EmptyState
+                                icon={BuildingOfficeIcon}
+                                title="No departments found"
+                                description={
+                                    searchTerm
+                                        ? 'No departments match your search. Try adjusting your search term.'
+                                        : 'Get started by creating your first department to organize employees.'
+                                }
+                                actionLabel={!searchTerm ? 'Add First Department' : null}
+                                actionHref={!searchTerm ? route('departments.create') : null}
+                            />
                         )}
 
                         {/* Pagination */}

@@ -3,6 +3,7 @@ import { Head, Link, router } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import MemoizedCard from '@/Components/Performance/MemoizedCard';
 import OptimizedPagination from '@/Components/Performance/OptimizedPagination';
+import { EmptyState } from '@/Components/UI';
 import {
     MagnifyingGlassIcon,
     FunnelIcon,
@@ -247,28 +248,17 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
                             </div>
                         </>
                     ) : (
-                        <div className="text-center py-16">
-                            <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                                <FolderIcon className="w-12 h-12 text-slate-400" />
-                            </div>
-                            <h3 className="text-xl font-medium text-slate-900 mb-2">
-                                No training types found
-                            </h3>
-                            <p className="text-slate-600 mb-6 max-w-md mx-auto">
-                                {searchTerm || selectedStatus ? (
-                                    'No training types match your current search criteria. Try adjusting your filters.'
-                                ) : (
-                                    'Get started by creating your first training type to manage certificate requirements.'
-                                )}
-                            </p>
-                            <Link
-                                href={route('training-types.create')}
-                                className="inline-flex items-center px-4 py-2 bg-green-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-green-700 transition-colors"
-                            >
-                                <PlusIcon className="w-4 h-4 mr-2" />
-                                Create First Training Type
-                            </Link>
-                        </div>
+                        <EmptyState
+                            icon={AcademicCapIcon}
+                            title="No training types found"
+                            description={
+                                searchTerm || selectedStatus
+                                    ? 'No training types match your current search criteria. Try adjusting your filters.'
+                                    : 'Get started by creating your first training type to manage certificate requirements.'
+                            }
+                            actionLabel={!searchTerm && !selectedStatus ? 'Create First Training Type' : null}
+                            actionHref={!searchTerm && !selectedStatus ? route('training-types.create') : null}
+                        />
                     )}
                 </div>
             </div>
