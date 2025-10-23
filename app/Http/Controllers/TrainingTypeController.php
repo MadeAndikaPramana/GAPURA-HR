@@ -335,20 +335,52 @@ class TrainingTypeController extends Controller
     }
 
     /**
-     * Analytics for training type - MISSING METHOD
+     * Analytics for training type
      */
     public function analytics(CertificateType $certificateType)
     {
-        $analytics = [
-            'total_certificates' => $certificateType->employeeCertificates->count(),
-            'active_certificates' => $certificateType->employeeCertificates->where('status', 'active')->count(),
-            'expired_certificates' => $certificateType->employeeCertificates->where('status', 'expired')->count(),
-            'unique_employees' => $certificateType->employeeCertificates->unique('employee_id')->count(),
+        // Load relationships
+        $certificateType->load(['employeeCertificates.employee.department']);
+
+        $certificates = $certificateType->employeeCertificates;
+
+        // Statistics
+        $statistics = [
+            'total_certificates' => $certificates->count(),
+            'active_certificates' => $certificates->where('status', 'active')->count(),
+            'expired_certificates' => $certificates->where('status', 'expired')->count(),
+            'expiring_soon_certificates' => $certificates->where('status', 'expiring_soon')->count(),
+            'unique_employees' => $certificates->unique('employee_id')->count(),
+            'compliance_rate' => $this->calculateComplianceRate($certificateType)
+        ];
+
+        // By Department
+        $byDepartment = $certificates->groupBy('employee.department.name')->map(function ($deptCerts, $deptName) {
+            return [
+                'department_name' => $deptName ?? 'No Department',
+                'total' => $deptCerts->count(),
+                'active' => $deptCerts->where('status', 'active')->count(),
+                'expired' => $deptCerts->where('status', 'expired')->count(),
+                'expiring_soon' => $deptCerts->where('status', 'expiring_soon')->count(),
+            ];
+        })->values();
+
+        // By Status
+        $byStatus = [
+            ['status' => 'active', 'count' => $statistics['active_certificates']],
+            ['status' => 'expired', 'count' => $statistics['expired_certificates']],
+            ['status' => 'expiring_soon', 'count' => $statistics['expiring_soon_certificates']],
+        ];
+
+        $analyticsData = [
+            'statistics' => $statistics,
+            'by_department' => $byDepartment,
+            'by_status' => $byStatus,
         ];
 
         return Inertia::render('TrainingTypes/Analytics', [
             'certificateType' => $certificateType,
-            'analytics' => $analytics,
+            'analyticsData' => $analyticsData,
         ]);
     }
 

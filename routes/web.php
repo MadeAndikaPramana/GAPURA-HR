@@ -6,6 +6,7 @@ use App\Http\Controllers\EmployeeContainerController;
 use App\Http\Controllers\CertificateStatusController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\SDMController;
+use App\Http\Controllers\DashboardController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -26,14 +27,16 @@ require __DIR__.'/auth.php';
 */
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // Landing page - redirect to SDM (Employee Master Data Management)
+    // Landing page - redirect to Dashboard
     Route::get('/', function () {
-        return redirect()->route('sdm.index');
+        return redirect()->route('dashboard');
     });
 
-    Route::get('/dashboard', function () {
-        return redirect()->route('sdm.index');
-    })->name('dashboard');
+    // Main Dashboard
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // Dashboard API for stats
+    Route::get('/api/dashboard/stats', [DashboardController::class, 'getStats'])->name('dashboard.stats');
 
     /*
     |--------------------------------------------------------------------------
