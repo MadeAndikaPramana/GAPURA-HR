@@ -43,6 +43,18 @@ export default function Sidebar({ user, mobile = false }) {
     // CLEANED NAVIGATION STRUCTURE - Removed unnecessary items
     const navigationSections = [
         {
+            title: 'MAIN',
+            items: [
+                {
+                    name: 'Dashboard',
+                    href: '/dashboard',
+                    icon: HomeIcon,
+                    description: 'Overview and analytics',
+                    current: isCurrentPage('/dashboard', true) || url === '/'
+                }
+            ]
+        },
+        {
             title: 'EMPLOYEE MANAGEMENT',
             items: [
                 {
