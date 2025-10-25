@@ -192,7 +192,7 @@ class EmployeeContainerController extends Controller
         // Calculate statistics from employee certificates
         $certificateStats = $employee->getCertificateStatistics();
 
-        return Inertia::render('Employees/Container', [
+        return Inertia::render('EmployeeContainers/Show', [
             'employee' => $employee,
             'statistics' => [
                 'total' => $certificateStats['total'],
