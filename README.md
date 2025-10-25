@@ -1,61 +1,682 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# GAPURA-HR
 
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <img src="https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white" alt="Laravel">
+  <img src="https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React">
+  <img src="https://img.shields.io/badge/Inertia.js-1.0-9553E9?style=for-the-badge&logo=inertia&logoColor=white" alt="Inertia">
+  <img src="https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind">
 </p>
 
-## About Laravel
+Sistem Manajemen Pelatihan & Sertifikasi Karyawan berbasis web yang modern dan user-friendly. GAPURA-HR dirancang untuk mengelola data karyawan, sertifikasi, dan pelatihan dengan pendekatan "Employee Container" - folder digital untuk setiap karyawan.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 📋 Daftar Isi
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- [Fitur Utama](#-fitur-utama)
+- [Tech Stack](#-tech-stack)
+- [Requirements](#-requirements)
+- [Instalasi](#-instalasi)
+- [Konfigurasi](#️-konfigurasi)
+- [Database Setup](#-database-setup)
+- [Menjalankan Aplikasi](#-menjalankan-aplikasi)
+- [Development Commands](#-development-commands)
+- [Struktur Project](#-struktur-project)
+- [Panduan Penggunaan](#-panduan-penggunaan)
+- [Troubleshooting](#-troubleshooting)
+- [Credits](#-credits)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## ✨ Fitur Utama
 
-## Learning Laravel
+### 1. **Employee Container System**
+Sistem folder digital untuk setiap karyawan yang menyimpan:
+- Background check files
+- Sertifikat & dokumen pelatihan
+- Status sertifikasi real-time
+- Riwayat pelatihan lengkap
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### 2. **Dashboard Analytics**
+Dashboard komprehensif dengan:
+- 📊 8 kartu statistik real-time
+- 📈 Pie Chart status sertifikat
+- 📉 Bar Chart per departemen
+- 📅 Line Chart trend 6 bulan
+- 🔔 Recent activities & alerts
+- ⚡ Quick actions panel
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+### 3. **Certificate Expiry Tracking**
+- Auto-update status sertifikat (Active, Expiring Soon, Expired)
+- Warning notification H-30 sebelum expired
+- Bulk compliance reporting
+- Export Excel untuk audit
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### 4. **Training Types Management**
+- Master data jenis pelatihan/sertifikasi
+- Department requirement mapping
+- Validity period & recurrent training
+- Learning objectives & cost estimation
+- Analytics per training type
 
-## Laravel Sponsors
+### 5. **Employee Management (SDM Module)**
+- CRUD karyawan lengkap
+- Import/export Excel
+- Department assignment
+- Background check file upload
+- Bulk operations
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### 6. **Department Management**
+- Struktur departemen organisasi
+- Training requirements per department
+- Department-based analytics
+- Active/inactive status
 
-### Premium Partners
+### 7. **File Management**
+- Secure private file storage
+- Container-based organization
+- Background check & certificate files
+- Access control & authentication
+- Download/upload dengan validation
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+### 8. **Reporting & Export**
+- Employee containers export (Excel)
+- Compliance reports
+- Certificate analytics
+- Department statistics
+- Custom filters
 
-## Contributing
+## 🛠 Tech Stack
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Backend
+- **Laravel 12.x** - PHP Framework
+- **PHP 8.2+** - Programming Language
+- **SQLite/MySQL** - Database
+- **Laravel Breeze** - Authentication
+- **Maatwebsite/Excel** - Excel Import/Export
+- **DomPDF** - PDF Generation
+- **Google Drive API** - Cloud Storage Integration
 
-## Code of Conduct
+### Frontend
+- **React 18** - UI Framework
+- **Inertia.js** - SPA Routing
+- **Tailwind CSS** - Styling Framework
+- **Headless UI** - Accessible Components
+- **Recharts** - Data Visualization
+- **Lucide React** - Icon Library
+- **Vite** - Build Tool
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## 📦 Requirements
 
-## Security Vulnerabilities
+- **PHP** >= 8.2
+- **Composer** >= 2.x
+- **Node.js** >= 18.x
+- **NPM** >= 9.x
+- **SQLite** atau **MySQL** 8.x
+- **Git**
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 🚀 Instalasi
 
-## License
+### 1. Clone Repository
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+git clone <repository-url>
+cd GAPURA-HR
+```
+
+### 2. Install Dependencies
+
+**Backend (PHP):**
+```bash
+composer install
+```
+
+**Frontend (Node):**
+```bash
+npm install
+```
+
+### 3. Environment Setup
+
+```bash
+# Copy environment file
+cp .env.example .env
+
+# Generate application key
+php artisan key:generate
+```
+
+## ⚙️ Konfigurasi
+
+Edit file `.env` sesuai environment Anda:
+
+```env
+APP_NAME="GAPURA-HR"
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+# Database - SQLite (Default)
+DB_CONNECTION=sqlite
+DB_DATABASE=/absolute/path/to/database/database.sqlite
+
+# Atau MySQL
+# DB_CONNECTION=mysql
+# DB_HOST=127.0.0.1
+# DB_PORT=3306
+# DB_DATABASE=gapura_hr
+# DB_USERNAME=root
+# DB_PASSWORD=
+
+# Mail Configuration (Optional)
+MAIL_MAILER=log
+MAIL_FROM_ADDRESS=noreply@gapura-hr.com
+MAIL_FROM_NAME="${APP_NAME}"
+
+# Queue Configuration
+QUEUE_CONNECTION=database
+```
+
+## 🗄 Database Setup
+
+### Opsi 1: SQLite (Recommended untuk Development)
+
+```bash
+# Buat file database
+touch database/database.sqlite
+
+# Jalankan migrations
+php artisan migrate:fresh
+
+# Seed data demo (opsional)
+php artisan db:seed --class=DemoDataSeeder
+
+# Seed admin user
+php artisan db:seed --class=AdminUserSeeder
+```
+
+### Opsi 2: MySQL
+
+```bash
+# Buat database MySQL
+mysql -u root -p
+CREATE DATABASE gapura_hr;
+EXIT;
+
+# Update .env dengan MySQL credentials
+# Kemudian jalankan migrations
+php artisan migrate:fresh --seed
+```
+
+### Data Seeding
+
+**Admin User Credentials** (setelah seeding):
+```
+Email    : admin@gapura.com
+Password : password
+```
+
+**Demo Data** includes:
+- 5 Departments (HR, Engineering, Operations, Sales, IT)
+- 10 Employees dengan berbagai department
+- 5 Certificate Types (Fire Safety, First Aid, etc.)
+- 20-40 Certificates dengan status bervariasi
+
+## 🏃 Menjalankan Aplikasi
+
+### Development Mode
+
+**Opsi 1: Composer Script (Recommended)**
+```bash
+# Jalankan semua services sekaligus (server + queue + logs + vite)
+composer run dev
+```
+
+Ini akan menjalankan:
+- ✅ Laravel development server (`http://127.0.0.1:8000`)
+- ✅ Queue worker untuk background jobs
+- ✅ Real-time log monitoring (Pail)
+- ✅ Vite dev server dengan HMR
+
+**Opsi 2: Manual (Terminal Terpisah)**
+
+Terminal 1 - Laravel Server:
+```bash
+php artisan serve
+```
+
+Terminal 2 - Frontend (Vite):
+```bash
+npm run dev
+```
+
+Terminal 3 - Queue Worker (Optional):
+```bash
+php artisan queue:listen
+```
+
+Terminal 4 - Logs (Optional):
+```bash
+php artisan pail
+```
+
+### Production Build
+
+```bash
+# Build frontend assets
+npm run build
+
+# Optimize Laravel
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+# Start server (gunakan web server seperti Nginx/Apache)
+php artisan serve --host=0.0.0.0 --port=8000
+```
+
+## 💻 Development Commands
+
+### Testing
+
+```bash
+# Run PHPUnit tests
+composer run test
+# atau
+php artisan test
+
+# Run with coverage
+php artisan test --coverage
+```
+
+### Database
+
+```bash
+# Fresh migration
+php artisan migrate:fresh
+
+# Fresh migration with seeding
+php artisan migrate:fresh --seed
+
+# Refresh autoloader
+composer dump-autoload
+
+# Seed specific seeder
+php artisan db:seed --class=DemoDataSeeder
+php artisan db:seed --class=AdminUserSeeder
+```
+
+### Code Quality
+
+```bash
+# Format code dengan Laravel Pint
+./vendor/bin/pint
+
+# Clear caches
+php artisan cache:clear
+php artisan config:clear
+php artisan route:clear
+php artisan view:clear
+```
+
+### Container Management
+
+```bash
+# Health check all containers
+php artisan containers:health-check
+
+# Check specific employee
+php artisan containers:health-check --employee=EMP001
+
+# Auto-repair issues
+php artisan containers:health-check --repair
+
+# Generate report
+php artisan containers:health-check --report=report.txt
+
+# Bulk operations
+php artisan containers:bulk-operations create   # Create missing
+php artisan containers:bulk-operations repair   # Repair all
+php artisan containers:bulk-operations cleanup  # Cleanup orphaned
+php artisan containers:bulk-operations migrate  # Migrate structure
+```
+
+### MPGA Import
+
+```bash
+# Import MPGA training data
+php artisan mpga:import file.xlsx
+
+# Update existing certificates
+php artisan mpga:import file.xlsx --update-existing
+
+# Create new certificate types
+php artisan mpga:import file.xlsx --create-types
+```
+
+## 📁 Struktur Project
+
+```
+GAPURA-HR/
+├── app/
+│   ├── Console/Commands/          # Artisan commands
+│   ├── Exports/                   # Excel export classes
+│   │   └── ContainersExport.php
+│   ├── Http/Controllers/          # Controllers
+│   │   ├── DashboardController.php
+│   │   ├── EmployeeContainerController.php
+│   │   ├── TrainingTypeController.php
+│   │   └── ...
+│   ├── Models/                    # Eloquent models
+│   │   ├── Employee.php
+│   │   ├── EmployeeCertificate.php
+│   │   ├── CertificateType.php
+│   │   └── ...
+│   └── ...
+│
+├── database/
+│   ├── migrations/                # Database migrations
+│   └── seeders/                   # Database seeders
+│       ├── DemoDataSeeder.php
+│       ├── AdminUserSeeder.php
+│       └── DatabaseSeeder.php
+│
+├── resources/
+│   └── js/
+│       ├── Components/            # React components
+│       │   ├── UI/               # Reusable UI components
+│       │   │   ├── LoadingButton.jsx
+│       │   │   ├── EmptyState.jsx
+│       │   │   ├── ConfirmModal.jsx
+│       │   │   └── FormInput.jsx
+│       │   └── ...
+│       ├── Layouts/              # Layout components
+│       │   ├── AuthenticatedLayout.jsx
+│       │   ├── GuestLayout.jsx
+│       │   └── Sidebar.jsx
+│       └── Pages/                # Page components
+│           ├── Dashboard/
+│           │   └── Index.jsx     # Main dashboard
+│           ├── EmployeeContainers/
+│           │   ├── Index.jsx
+│           │   ├── Show.jsx
+│           │   └── ...
+│           ├── TrainingTypes/
+│           │   ├── Index.jsx
+│           │   ├── Create.jsx
+│           │   ├── Edit.jsx
+│           │   └── Analytics.jsx
+│           ├── SDM/              # Employee master data
+│           └── ...
+│
+├── routes/
+│   └── web.php                   # Web routes
+│
+├── storage/
+│   └── app/
+│       └── private/              # Secure file storage
+│           └── containers/       # Employee containers
+│
+├── tests/                        # PHPUnit tests
+│
+├── .env.example                  # Environment template
+├── CLAUDE.md                     # Claude Code instructions
+├── composer.json                 # PHP dependencies
+├── package.json                  # Node dependencies
+└── README.md                     # This file
+```
+
+## 📖 Panduan Penggunaan
+
+### 1. Login
+
+Akses `http://127.0.0.1:8000` dan login dengan:
+- **Email**: `admin@gapura.com`
+- **Password**: `password`
+
+### 2. Dashboard
+
+Setelah login, Anda akan melihat:
+- **Statistics Cards**: Total employees, certificates, status overview
+- **Charts**: Visual analytics (Pie, Bar, Line)
+- **Recent Activities**: Latest certificate updates
+- **Quick Actions**: Shortcuts ke fitur utama
+
+### 3. Employee Containers
+
+**Sidebar → Employee Containers**
+
+- **View All**: Lihat semua employee containers
+- **Search**: Filter by name, NIK, department
+- **Create**: Add new employee container
+- **Details**: Klik container untuk melihat detail
+  - Background check files
+  - Certificates list dengan status
+  - Upload/download files
+  - Add new certificate
+
+### 4. Training Types
+
+**Sidebar → Training Types**
+
+- **View All**: List semua jenis training
+- **Create**: Tambah training type baru
+- **Edit**: Update training details
+- **Analytics**: Lihat analytics per training type
+  - Certificate statistics
+  - Department distribution
+  - Compliance rate
+
+### 5. SDM Module
+
+**Sidebar → SDM (Employee Master)**
+
+- **CRUD Operations**: Create, Read, Update, Delete employees
+- **Import Excel**: Bulk import employee data
+- **Export Excel**: Download employee list
+- **Bulk Operations**: Mass updates
+
+### 6. Departments
+
+**Sidebar → Departments**
+
+- **Manage Departments**: Create/edit departments
+- **Training Requirements**: Set required trainings per dept
+- **Analytics**: View department statistics
+
+### 7. Export & Reports
+
+**Features:**
+- **Container Export**: Export all containers to Excel
+- **Compliance Report**: Generate compliance report
+- **Certificate Analytics**: Export analytics data
+- **Custom Filters**: Filter by department, status, date range
+
+## 🔧 Troubleshooting
+
+### Error: "vendor/autoload.php not found"
+
+```bash
+composer install
+```
+
+### Error: "Target class [Seeder] does not exist"
+
+```bash
+composer dump-autoload
+```
+
+### Error: "Column not found: issued_by"
+
+Update repository dan jalankan fresh migration:
+```bash
+git pull
+php artisan migrate:fresh --seed
+```
+
+### Error: "SQLSTATE[HY000]: General error: 1 no such table"
+
+```bash
+php artisan migrate:fresh
+php artisan db:seed
+```
+
+### Frontend tidak ter-update
+
+```bash
+npm run build
+# atau untuk dev mode
+npm run dev
+```
+
+### Permission denied untuk storage
+
+```bash
+chmod -R 775 storage bootstrap/cache
+chown -R www-data:www-data storage bootstrap/cache
+```
+
+### Queue jobs tidak berjalan
+
+```bash
+php artisan queue:restart
+php artisan queue:listen
+```
+
+## 🏗 Roadmap Development (Completed)
+
+- ✅ **DAY 1**: Critical bug fixes
+  - Fixed TrainingTypes/Edit.jsx
+  - Created Analytics page
+  - Implemented export & reporting
+
+- ✅ **DAY 2**: Dashboard & Analytics
+  - Complete dashboard with charts
+  - Real-time statistics
+  - Recent activities feed
+
+- ✅ **DAY 3**: UI Polish
+  - Reusable component library
+  - LoadingButton, EmptyState, ConfirmModal, FormInput
+  - Consistent design system
+
+- ✅ **DAY 4**: Testing & Demo Data
+  - EmptyState integration
+  - DemoDataSeeder with realistic data
+  - AdminUserSeeder
+
+- ✅ **DAY 5**: Documentation
+  - Comprehensive README
+  - Setup instructions
+  - Troubleshooting guide
+
+## 🎯 Key Features Detail
+
+### Employee Container Concept
+
+Setiap karyawan memiliki "container" digital yang berisi:
+
+```
+Container/
+├── Background Checks/
+│   ├── KTP.pdf
+│   ├── SKCK.pdf
+│   └── Medical_Certificate.pdf
+│
+└── Certificates/
+    ├── Fire_Safety_2024.pdf
+    ├── First_Aid_2023.pdf
+    └── IT_Security_2024.pdf
+```
+
+**Status Tracking:**
+- 🟢 **Active**: Certificate masih valid
+- 🟡 **Expiring Soon**: < 30 hari sebelum expired
+- 🔴 **Expired**: Sudah melewati expiry date
+
+### Certificate Lifecycle
+
+```
+Issue → Active → Expiring Soon → Expired → Renewal
+```
+
+Sistem automatically:
+1. Update status based on expiry date
+2. Send notification H-30 (expiring soon)
+3. Mark as expired setelah expiry date
+4. Generate compliance reports
+
+### File Storage Security
+
+- ✅ Private storage (tidak accessible via URL)
+- ✅ Authenticated access only
+- ✅ Container-based organization
+- ✅ File validation (type, size)
+- ✅ Secure download with tokens
+
+## 📝 API Endpoints
+
+### Dashboard
+```
+GET  /dashboard              - Main dashboard
+GET  /api/dashboard/stats    - Statistics API
+```
+
+### Employee Containers
+```
+GET    /employee-containers              - List all
+POST   /employee-containers              - Create new
+GET    /employee-containers/{id}         - Show details
+PUT    /employee-containers/{id}         - Update
+DELETE /employee-containers/{id}         - Delete
+GET    /employee-containers/export       - Export Excel
+GET    /employee-containers/compliance   - Compliance report
+```
+
+### Training Types
+```
+GET    /training-types                   - List all
+POST   /training-types                   - Create new
+GET    /training-types/{id}/edit         - Edit form
+PUT    /training-types/{id}              - Update
+DELETE /training-types/{id}              - Delete
+GET    /training-types/{id}/analytics    - Analytics
+```
+
+### Certificates
+```
+POST   /employee-containers/{id}/certificates        - Add certificate
+DELETE /employee-containers/{id}/certificates/{cert} - Delete certificate
+```
+
+### Files
+```
+GET    /files/background-check/{id}/{index}  - Download background check
+GET    /files/certificate/{id}               - Download certificate
+POST   /employee-containers/{id}/upload      - Upload file
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+## 👥 Credits
+
+**Built with:**
+- [Laravel](https://laravel.com) - The PHP Framework for Web Artisans
+- [React](https://react.dev) - The library for web and native user interfaces
+- [Inertia.js](https://inertiajs.com) - The Modern Monolith
+- [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS framework
+- [Recharts](https://recharts.org) - Redefined chart library built with React
+
+**Developed by:** GAPURA HR Development Team
+
+---
+
+<p align="center">Made with ❤️ for better HR management</p>
