@@ -6,7 +6,6 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Models\Department;
 use App\Models\Employee;
-use App\Models\TrainingRecord;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -32,14 +31,14 @@ class DepartmentController extends Controller
 
         // Add training statistics for each department
         $departments->getCollection()->transform(function ($department) {
-            $trainingStats = DB::table('training_records')
-                ->join('employees', 'training_records.employee_id', '=', 'employees.id')
+            $trainingStats = DB::table('employee_certificates')
+                ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
                 ->where('employees.department_id', $department->id)
                 ->selectRaw('
                     COUNT(*) as total_certificates,
-                    COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_certificates,
-                    COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_certificates,
-                    COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_certificates
+                    COUNT(CASE WHEN employee_certificates.status = "active" THEN 1 END) as active_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expiring_soon" THEN 1 END) as expiring_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expired" THEN 1 END) as expired_certificates
                 ')
                 ->first();
 
@@ -97,54 +96,55 @@ class DepartmentController extends Controller
      */
     public function show(Department $department)
     {
-        // Load department with employees and their training records
+        // Load department with employees and their certificates
         $department->load([
             'employees' => function($query) {
-                $query->with(['trainingRecords.trainingType']);
+                $query->with(['employeeCertificates.certificateType']);
             }
         ]);
 
         // Get department training statistics
-        $trainingStats = DB::table('training_records')
-            ->join('employees', 'training_records.employee_id', '=', 'employees.id')
-            ->join('training_types', 'training_records.training_type_id', '=', 'training_types.id')
+        $trainingStats = DB::table('employee_certificates')
+            ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
+            ->join('certificate_types', 'employee_certificates.certificate_type_id', '=', 'certificate_types.id')
             ->where('employees.department_id', $department->id)
             ->selectRaw('
                 COUNT(*) as total_certificates,
-                COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_certificates,
-                COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_certificates,
-                COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_certificates,
-                COUNT(DISTINCT training_records.employee_id) as employees_with_training,
-                COUNT(DISTINCT training_types.id) as unique_training_types
+                COUNT(CASE WHEN employee_certificates.status = "active" THEN 1 END) as active_certificates,
+                COUNT(CASE WHEN employee_certificates.status = "expiring_soon" THEN 1 END) as expiring_certificates,
+                COUNT(CASE WHEN employee_certificates.status = "expired" THEN 1 END) as expired_certificates,
+                COUNT(DISTINCT employee_certificates.employee_id) as employees_with_training,
+                COUNT(DISTINCT certificate_types.id) as unique_training_types
             ')
             ->first();
 
         // Get training by category breakdown
-        $trainingByCategory = DB::table('training_records')
-            ->join('employees', 'training_records.employee_id', '=', 'employees.id')
-            ->join('training_types', 'training_records.training_type_id', '=', 'training_types.id')
+        $trainingByCategory = DB::table('employee_certificates')
+            ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
+            ->join('certificate_types', 'employee_certificates.certificate_type_id', '=', 'certificate_types.id')
             ->where('employees.department_id', $department->id)
             ->selectRaw('
-                training_types.category,
+                certificate_types.category,
                 COUNT(*) as total,
-                COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active,
-                COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring,
-                COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired
+                COUNT(CASE WHEN employee_certificates.status = "active" THEN 1 END) as active,
+                COUNT(CASE WHEN employee_certificates.status = "expiring_soon" THEN 1 END) as expiring,
+                COUNT(CASE WHEN employee_certificates.status = "expired" THEN 1 END) as expired
             ')
-            ->groupBy('training_types.category')
+            ->groupBy('certificate_types.category')
             ->get();
 
         // Get employees without any training
         $employeesWithoutTraining = Employee::where('department_id', $department->id)
-            ->doesntHave('trainingRecords')
+            ->doesntHave('employeeCertificates')
             ->get();
 
         // Get recent training activities
-        $recentActivities = TrainingRecord::join('employees', 'training_records.employee_id', '=', 'employees.id')
-            ->join('training_types', 'training_records.training_type_id', '=', 'training_types.id')
+        $recentActivities = DB::table('employee_certificates')
+            ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
+            ->join('certificate_types', 'employee_certificates.certificate_type_id', '=', 'certificate_types.id')
             ->where('employees.department_id', $department->id)
-            ->select('training_records.*', 'employees.name as employee_name', 'training_types.name as training_name')
-            ->orderBy('training_records.created_at', 'desc')
+            ->select('employee_certificates.*', 'employees.name as employee_name', 'certificate_types.name as training_name')
+            ->orderBy('employee_certificates.created_at', 'desc')
             ->limit(10)
             ->get();
 
@@ -216,14 +216,14 @@ class DepartmentController extends Controller
         $departments = Department::with(['employees', 'activeEmployees'])->get();
 
         $stats = $departments->map(function ($department) {
-            $trainingStats = DB::table('training_records')
-                ->join('employees', 'training_records.employee_id', '=', 'employees.id')
+            $trainingStats = DB::table('employee_certificates')
+                ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
                 ->where('employees.department_id', $department->id)
                 ->selectRaw('
                     COUNT(*) as total_certificates,
-                    COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_certificates,
-                    COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_certificates,
-                    COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_certificates
+                    COUNT(CASE WHEN employee_certificates.status = "active" THEN 1 END) as active_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expiring_soon" THEN 1 END) as expiring_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expired" THEN 1 END) as expired_certificates
                 ')
                 ->first();
 
@@ -260,11 +260,11 @@ class DepartmentController extends Controller
     public function getComplianceReport(Department $department)
     {
         $employees = Employee::where('department_id', $department->id)
-            ->with(['trainingRecords.trainingType'])
+            ->with(['employeeCertificates.certificateType'])
             ->get();
 
         $complianceData = $employees->map(function ($employee) {
-            $records = $employee->trainingRecords;
+            $records = $employee->employeeCertificates;
             $activeRecords = $records->where('status', 'active');
             $expiringRecords = $records->where('status', 'expiring_soon');
             $expiredRecords = $records->where('status', 'expired');
@@ -302,17 +302,17 @@ class DepartmentController extends Controller
      */
     public function export(Request $request)
     {
-        $departments = Department::with(['employees.trainingRecords'])->get();
+        $departments = Department::with(['employees.employeeCertificates'])->get();
 
         $exportData = $departments->map(function ($department) {
-            $trainingStats = DB::table('training_records')
-                ->join('employees', 'training_records.employee_id', '=', 'employees.id')
+            $trainingStats = DB::table('employee_certificates')
+                ->join('employees', 'employee_certificates.employee_id', '=', 'employees.id')
                 ->where('employees.department_id', $department->id)
                 ->selectRaw('
                     COUNT(*) as total_certificates,
-                    COUNT(CASE WHEN training_records.status = "active" THEN 1 END) as active_certificates,
-                    COUNT(CASE WHEN training_records.status = "expiring_soon" THEN 1 END) as expiring_certificates,
-                    COUNT(CASE WHEN training_records.status = "expired" THEN 1 END) as expired_certificates
+                    COUNT(CASE WHEN employee_certificates.status = "active" THEN 1 END) as active_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expiring_soon" THEN 1 END) as expiring_certificates,
+                    COUNT(CASE WHEN employee_certificates.status = "expired" THEN 1 END) as expired_certificates
                 ')
                 ->first();
 
