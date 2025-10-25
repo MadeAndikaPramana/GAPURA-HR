@@ -142,6 +142,10 @@ class TrainingTypeController extends Controller
             'is_mandatory' => 'boolean',
             'is_recurrent' => 'boolean',
             'description' => 'nullable|string|max:1000',
+            'requirements' => 'nullable|string|max:2000',
+            'learning_objectives' => 'nullable|string|max:2000',
+            'estimated_cost' => 'nullable|numeric|min:0',
+            'estimated_duration_hours' => 'nullable|numeric|min:0|max:1000',
             'is_active' => 'boolean',
         ]);
 
@@ -188,6 +192,10 @@ class TrainingTypeController extends Controller
             'is_mandatory' => 'boolean',
             'is_recurrent' => 'boolean',
             'description' => 'nullable|string|max:1000',
+            'requirements' => 'nullable|string|max:2000',
+            'learning_objectives' => 'nullable|string|max:2000',
+            'estimated_cost' => 'nullable|numeric|min:0',
+            'estimated_duration_hours' => 'nullable|numeric|min:0|max:1000',
             'is_active' => 'boolean',
         ]);
 
