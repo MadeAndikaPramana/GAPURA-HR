@@ -22,6 +22,7 @@ class EmployeesImport implements ToCollection, WithHeadingRow, WithValidation
         'updated' => 0,
         'skipped' => 0,
         'errors' => 0,
+        'error_details' => [],
         'containers_created' => 0,
         'container_errors' => 0
     ];
@@ -55,11 +56,22 @@ class EmployeesImport implements ToCollection, WithHeadingRow, WithValidation
 
     private function processEmployeeRow(array $row): void
     {
+        $rowNumber = $this->importResults['total_rows'];
+
         try {
             // Skip empty rows
             if (empty($row['employee_id']) && empty($row['name'])) {
                 $this->importResults['skipped']++;
                 return;
+            }
+
+            // Validate required fields
+            if (empty($row['employee_id'])) {
+                throw new \Exception("Employee ID is required");
+            }
+
+            if (empty($row['name'])) {
+                throw new \Exception("Name is required");
             }
 
             // Find existing employee
@@ -69,27 +81,34 @@ class EmployeesImport implements ToCollection, WithHeadingRow, WithValidation
             $departmentId = null;
             if (!empty($row['department'])) {
                 $department = Department::where('name', $row['department'])->first();
-                
+
                 if (!$department && $this->createDepartments) {
-                    $department = Department::create([
-                        'name' => $row['department'],
-                        'code' => strtoupper(substr($row['department'], 0, 3)),
-                        'is_active' => true
-                    ]);
+                    try {
+                        $department = Department::create([
+                            'name' => $row['department'],
+                            'code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $row['department']), 0, 10)),
+                            'is_active' => true
+                        ]);
+                    } catch (\Exception $e) {
+                        Log::warning('Department creation failed during import', [
+                            'department_name' => $row['department'],
+                            'error' => $e->getMessage()
+                        ]);
+                    }
                 }
-                
+
                 $departmentId = $department?->id;
             }
 
             $employeeData = [
                 'employee_id' => $row['employee_id'],
                 'name' => $row['name'],
-                'email' => $row['email'] ?? null,
-                'phone' => $row['phone'] ?? null,
+                'email' => !empty($row['email']) ? $row['email'] : null,
+                'phone' => !empty($row['phone']) ? $row['phone'] : null,
                 'department_id' => $departmentId,
-                'position' => $row['position'] ?? null,
+                'position' => !empty($row['position']) ? $row['position'] : null,
                 'hire_date' => !empty($row['hire_date']) ? \Carbon\Carbon::parse($row['hire_date']) : null,
-                'status' => $row['status'] ?? 'active'
+                'status' => !empty($row['status']) ? $row['status'] : 'active'
             ];
 
             if ($employee) {
@@ -98,11 +117,16 @@ class EmployeesImport implements ToCollection, WithHeadingRow, WithValidation
                     $this->importResults['updated']++;
                 } else {
                     $this->importResults['skipped']++;
+                    $this->importResults['error_details'][] = [
+                        'row' => $rowNumber,
+                        'employee_id' => $row['employee_id'],
+                        'message' => 'Employee already exists (update not enabled)'
+                    ];
                 }
             } else {
                 $newEmployee = Employee::create($employeeData);
                 $this->importResults['created']++;
-                
+
                 // Container creation is handled automatically by EmployeeObserver
                 // Just verify it was created successfully
                 if ($newEmployee->container_status === 'active') {
@@ -111,13 +135,24 @@ class EmployeesImport implements ToCollection, WithHeadingRow, WithValidation
                     $this->importResults['container_errors']++;
                     Log::warning('Container creation failed during import', [
                         'employee_id' => $newEmployee->employee_id,
-                        'row' => $this->importResults['total_rows']
+                        'row' => $rowNumber
                     ]);
                 }
             }
 
         } catch (\Exception $e) {
             $this->importResults['errors']++;
+            $this->importResults['error_details'][] = [
+                'row' => $rowNumber,
+                'employee_id' => $row['employee_id'] ?? 'Unknown',
+                'message' => $e->getMessage()
+            ];
+
+            Log::error('Employee import error', [
+                'row' => $rowNumber,
+                'data' => $row,
+                'error' => $e->getMessage()
+            ]);
         }
     }
 

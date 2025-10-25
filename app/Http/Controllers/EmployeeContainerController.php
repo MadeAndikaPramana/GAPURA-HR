@@ -227,7 +227,7 @@ class EmployeeContainerController extends Controller
             'files' => 'required|array|max:5',
             'files.*' => 'file|mimes:pdf,jpg,jpeg,png|max:5120', // 5MB max per file
             'notes' => 'nullable|string|max:1000',
-            'status' => 'required|in:pending_review,cleared,requires_follow_up,rejected'
+            'status' => 'nullable|in:not_started,in_progress,pending_review,cleared,requires_follow_up,rejected,expired'
         ]);
 
         if ($validator->fails()) {
@@ -263,7 +263,7 @@ class EmployeeContainerController extends Controller
             // Update employee background check data
             $employee->update([
                 'background_check_files' => $allFiles,
-                'background_check_status' => $request->status,
+                'background_check_status' => $request->status ?? 'pending_review',
                 'background_check_date' => now(),
                 'background_check_notes' => $request->notes
             ]);

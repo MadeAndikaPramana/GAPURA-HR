@@ -163,6 +163,7 @@ EmployeeHeader.propTypes = {
 // Add Certificate Modal
 function AddCertificateModal({ isOpen, onClose, employee, certificateTypes, onSubmit }) {
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState({});
     const [formData, setFormData] = useState({
         certificate_type_id: '',
         certificate_number: '',
@@ -183,48 +184,53 @@ function AddCertificateModal({ isOpen, onClose, employee, certificateTypes, onSu
 
     if (!isOpen) return null;
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
         setLoading(true);
+        setErrors({});
 
         const form = new FormData();
         Object.keys(formData).forEach(key => {
-            if (key === 'files') {
+            if (key === 'files' && formData.files.length > 0) {
                 formData.files.forEach(file => form.append('files[]', file));
-            } else if (formData[key]) {
+            } else if (formData[key] && key !== 'files') {
                 form.append(key, formData[key]);
             }
         });
 
-        try {
-            await router.post(route('employee-containers.certificates.store', employee.id), form, {
-                forceFormData: true,
-                onSuccess: () => {
-                    onClose();
-                    setFormData({
-                        certificate_type_id: '',
-                        certificate_number: '',
-                        issuer: '',
-                        training_provider: '',
-                        issue_date: '',
-                        expiry_date: '',
-                        completion_date: '',
-                        training_date: '',
-                        training_hours: '',
-                        cost: '',
-                        score: '',
-                        location: '',
-                        instructor_name: '',
-                        notes: '',
-                        files: []
-                    });
-                }
-            });
-        } catch (error) {
-            console.error('Error adding certificate:', error);
-        } finally {
-            setLoading(false);
-        }
+        router.post(route('employee-containers.certificates.store', employee.id), form, {
+            forceFormData: true,
+            onSuccess: () => {
+                onClose();
+                setFormData({
+                    certificate_type_id: '',
+                    certificate_number: '',
+                    issuer: '',
+                    training_provider: '',
+                    issue_date: '',
+                    expiry_date: '',
+                    completion_date: '',
+                    training_date: '',
+                    training_hours: '',
+                    cost: '',
+                    score: '',
+                    location: '',
+                    instructor_name: '',
+                    notes: '',
+                    files: []
+                });
+                setErrors({});
+                setLoading(false);
+            },
+            onError: (errors) => {
+                console.error('Validation errors:', errors);
+                setErrors(errors);
+                setLoading(false);
+            },
+            onFinish: () => {
+                setLoading(false);
+            }
+        });
     };
 
     return (
@@ -243,6 +249,18 @@ function AddCertificateModal({ isOpen, onClose, employee, certificateTypes, onSu
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {/* Global Error Message */}
+                    {Object.keys(errors).length > 0 && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                            <p className="font-medium">Please fix the following errors:</p>
+                            <ul className="list-disc list-inside mt-2 text-sm">
+                                {Object.values(errors).map((error, index) => (
+                                    <li key={index}>{error}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Certificate Type */}
                         <div className="md:col-span-2">
@@ -253,7 +271,9 @@ function AddCertificateModal({ isOpen, onClose, employee, certificateTypes, onSu
                                 value={formData.certificate_type_id}
                                 onChange={(e) => setFormData({...formData, certificate_type_id: e.target.value})}
                                 required
-                                className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                className={`w-full border rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                                    errors.certificate_type_id ? 'border-red-300 bg-red-50' : 'border-gray-300'
+                                }`}
                             >
                                 <option value="">Select Certificate Type</option>
                                 {certificateTypes.map(type => (
@@ -262,6 +282,9 @@ function AddCertificateModal({ isOpen, onClose, employee, certificateTypes, onSu
                                     </option>
                                 ))}
                             </select>
+                            {errors.certificate_type_id && (
+                                <p className="mt-1 text-sm text-red-600">{errors.certificate_type_id}</p>
+                            )}
                         </div>
 
                         {/* Certificate Number */}

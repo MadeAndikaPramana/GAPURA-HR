@@ -264,6 +264,10 @@ class SDMController extends Controller
 
             $message = "Import completed! Created: {$results['created']}, Updated: {$results['updated']}, Skipped: {$results['skipped']}";
 
+            if (isset($results['errors']) && $results['errors'] > 0) {
+                $message .= ", Errors: {$results['errors']}";
+            }
+
             if (isset($results['containers_created']) && $results['containers_created'] > 0) {
                 $message .= ", Containers created: {$results['containers_created']}";
             }
@@ -272,7 +276,26 @@ class SDMController extends Controller
                 $message .= ", Container errors: {$results['container_errors']}";
             }
 
-            return back()->with('success', $message)->with('import_results', $results);
+            // Add detailed error messages if any
+            $responseType = $results['errors'] > 0 ? 'warning' : 'success';
+            $response = back()->with($responseType, $message)->with('import_results', $results);
+
+            if (!empty($results['error_details'])) {
+                $errorDetails = collect($results['error_details'])
+                    ->take(10) // Show first 10 errors
+                    ->map(function ($error) {
+                        return "Row {$error['row']}: {$error['message']} (ID: {$error['employee_id']})";
+                    })
+                    ->implode("\n");
+
+                if (count($results['error_details']) > 10) {
+                    $errorDetails .= "\n... and " . (count($results['error_details']) - 10) . " more errors. Check logs for details.";
+                }
+
+                $response->with('error_details', $errorDetails);
+            }
+
+            return $response;
 
         } catch (\Exception $e) {
             return back()->with('error', 'Import failed: ' . $e->getMessage());
