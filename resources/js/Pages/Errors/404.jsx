@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { Link } from '@inertiajs/react';
 
 export default function NotFound() {
     return (
@@ -10,9 +11,9 @@ export default function NotFound() {
                 <p className="mt-4 text-gray-500">
                     The page you are looking for does not exist.
                 </p>
-                <a href="/dashboard" className="mt-6 inline-block px-6 py-3 text-sm font-semibold text-white bg-blue-500 rounded-md hover:bg-blue-600">
+                <Link href="/dashboard" className="mt-6 inline-block px-6 py-3 text-sm font-semibold text-white bg-blue-500 rounded-md hover:bg-blue-600">
                     Go to Dashboard
-                </a>
+                </Link>
             </div>
         </div>
     );
