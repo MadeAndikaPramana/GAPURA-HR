@@ -76,7 +76,10 @@ return [
             'strict' => true,
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                // Use PDO\Mysql::ATTR_SSL_CA for PHP 8.5+ to avoid deprecation warning
+                // PDO\Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                // SSL configuration commented out for local development
+                // Uncomment and configure for production if SSL is required
             ]) : [],
         ],
 
@@ -96,7 +99,10 @@ return [
             'strict' => true,
             'engine' => null,
             'options' => extension_loaded('pdo_mysql') ? array_filter([
-                PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                // Use PDO\Mysql::ATTR_SSL_CA for PHP 8.5+ to avoid deprecation warning
+                // PDO\Mysql::ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
+                // SSL configuration commented out for local development
+                // Uncomment and configure for production if SSL is required
             ]) : [],
         ],
 
