@@ -45,7 +45,7 @@ export default function AuthenticatedLayout({ user, header, children }) {
             </div>
 
             {/* Desktop sidebar */}
-            <div className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0">
+            <div className="hidden lg:flex lg:w-64 lg:flex-col lg:fixed lg:inset-y-0 z-30">
                 <Sidebar user={user} />
             </div>
 
