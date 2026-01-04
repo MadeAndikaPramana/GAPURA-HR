@@ -1,4 +1,4 @@
-# GAPURA-HR
+# CertManager
 
 <p align="center">
   <img src="https://img.shields.io/badge/Laravel-12.x-FF2D20?style=for-the-badge&logo=laravel&logoColor=white" alt="Laravel">
@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Tailwind_CSS-3.x-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind">
 </p>
 
-Sistem Manajemen Pelatihan & Sertifikasi Karyawan berbasis web yang modern dan user-friendly. GAPURA-HR dirancang untuk mengelola data karyawan, sertifikasi, dan pelatihan dengan pendekatan "Employee Container" - folder digital untuk setiap karyawan.
+Sistem Manajemen Pelatihan & Sertifikasi Karyawan berbasis web yang modern dan user-friendly. CertManager dirancang untuk mengelola data karyawan, sertifikasi, dan pelatihan dengan pendekatan "Employee Container" - folder digital untuk setiap karyawan.
 
 ## 📋 Daftar Isi
 
@@ -117,7 +117,7 @@ Dashboard komprehensif dengan:
 
 ```bash
 git clone <repository-url>
-cd GAPURA-HR
+cd certmanager
 ```
 
 ### 2. Install Dependencies
@@ -147,7 +147,7 @@ php artisan key:generate
 Edit file `.env` sesuai environment Anda:
 
 ```env
-APP_NAME="GAPURA-HR"
+APP_NAME="CertManager"
 APP_ENV=local
 APP_DEBUG=true
 APP_URL=http://localhost:8000
@@ -160,13 +160,13 @@ DB_DATABASE=/absolute/path/to/database/database.sqlite
 # DB_CONNECTION=mysql
 # DB_HOST=127.0.0.1
 # DB_PORT=3306
-# DB_DATABASE=gapura_hr
+# DB_DATABASE=certmanager
 # DB_USERNAME=root
 # DB_PASSWORD=
 
 # Mail Configuration (Optional)
 MAIL_MAILER=log
-MAIL_FROM_ADDRESS=noreply@gapura-hr.com
+MAIL_FROM_ADDRESS=noreply@certmanager.local
 MAIL_FROM_NAME="${APP_NAME}"
 
 # Queue Configuration
@@ -196,7 +196,7 @@ php artisan db:seed --class=AdminUserSeeder
 ```bash
 # Buat database MySQL
 mysql -u root -p
-CREATE DATABASE gapura_hr;
+CREATE DATABASE certmanager;
 EXIT;
 
 # Update .env dengan MySQL credentials
@@ -208,7 +208,7 @@ php artisan migrate:fresh --seed
 
 **Admin User Credentials** (setelah seeding):
 ```
-Email    : admin@gapura.com
+Email    : admin@certmanager.local
 Password : password
 ```
 
@@ -353,7 +353,7 @@ php artisan mpga:import file.xlsx --create-types
 ## 📁 Struktur Project
 
 ```
-GAPURA-HR/
+certmanager/
 ├── app/
 │   ├── Console/Commands/          # Artisan commands
 │   ├── Exports/                   # Excel export classes
@@ -427,7 +427,7 @@ GAPURA-HR/
 ### 1. Login
 
 Akses `http://127.0.0.1:8000` dan login dengan:
-- **Email**: `admin@gapura.com`
+- **Email**: `admin@certmanager.local`
 - **Password**: `password`
 
 ### 2. Dashboard
@@ -675,7 +675,7 @@ This project is licensed under the MIT License.
 - [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS framework
 - [Recharts](https://recharts.org) - Redefined chart library built with React
 
-**Developed by:** GAPURA HR Development Team
+**Developed by:** CertManager Development Team
 
 ---
 

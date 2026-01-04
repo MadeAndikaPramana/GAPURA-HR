@@ -29,7 +29,7 @@ export default function TopNavigation({ sidebarOpen, setSidebarOpen, user }) {
         if (currentUrl.includes('/departments')) return 'Departments';
         if (currentUrl.includes('/reports')) return 'Reports';
         if (currentUrl.includes('/configuration')) return 'System Settings';
-        return 'GAPURA System';
+        return 'CertManager';
     };
 
     // Generate breadcrumb based on current URL

@@ -165,7 +165,7 @@ class DemoDataSeeder extends Seeder
                         'expiry_date' => $expiryDate,
                         'status' => $status,
                         'issuer' => 'Training Department',
-                        'training_provider' => 'GAPURA Training Center',
+                        'training_provider' => 'Training Center',
                         'notes' => 'Auto-generated demo certificate',
                     ]
                 );

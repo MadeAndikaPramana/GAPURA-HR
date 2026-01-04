@@ -132,7 +132,7 @@ class GoogleDriveService
             $fileMetadata = new DriveFile([
                 'name' => $storedFilename,
                 'parents' => [$folderId],
-                'description' => $metadata['description'] ?? 'Certificate uploaded via GAPURA system'
+                'description' => $metadata['description'] ?? 'Certificate uploaded via CertManager system'
             ]);
 
             // Upload file content

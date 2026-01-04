@@ -15,7 +15,7 @@ class UserSeeder extends Seeder
     {
         \App\Models\User::create([
             'name' => 'Super Admin',
-            'email' => 'superadmin@gapura.com',
+            'email' => 'superadmin@certmanager.local',
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);

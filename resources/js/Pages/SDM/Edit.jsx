@@ -125,7 +125,7 @@ export default function Edit({ auth, employee, departments }) {
                                             className={`block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 ${
                                                 errors.email ? 'ring-red-300 focus:ring-red-500' : 'ring-gray-300'
                                             }`}
-                                            placeholder="employee@gapura.com"
+                                            placeholder="employee@example.com"
                                         />
                                         {errors.email && (
                                             <p className="mt-1 text-sm text-red-600">{errors.email}</p>

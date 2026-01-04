@@ -377,7 +377,7 @@ class Kernel extends ConsoleKernel
     private function createDatabaseBackup(): void
     {
         try {
-            $filename = 'gapura_training_backup_' . now()->format('Y_m_d_H_i_s') . '.sql';
+            $filename = 'certmanager_backup_' . now()->format('Y_m_d_H_i_s') . '.sql';
             $backupDir = storage_path('backups');
             $path = $backupDir . '/' . $filename;
 
@@ -675,7 +675,7 @@ class Kernel extends ConsoleKernel
             $backupPath = storage_path('backups/');
             if (!is_dir($backupPath)) return;
 
-            $oldBackups = glob($backupPath . 'gapura_training_backup_*.sql');
+            $oldBackups = glob($backupPath . 'certmanager_backup_*.sql');
             $deletedCount = 0;
 
             foreach ($oldBackups as $backup) {

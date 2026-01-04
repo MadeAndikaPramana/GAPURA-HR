@@ -3,15 +3,15 @@ import { Link, Head } from '@inertiajs/react';
 export default function Welcome({ auth, laravelVersion, phpVersion }) {
     return (
         <>
-            <Head title="Welcome - GAPURA Employee Container System" />
+            <Head title="Welcome - CertManager" />
             <div className="bg-gray-50 text-black/50">
                 <div className="relative min-h-screen flex flex-col items-center justify-center selection:bg-blue-500 selection:text-white">
                     <div className="relative w-full max-w-2xl px-6 lg:max-w-7xl">
                         <header className="grid grid-cols-2 items-center gap-2 py-10 lg:grid-cols-3">
                             <div className="flex lg:justify-center lg:col-start-2">
                                 <div className="bg-white p-6 rounded-lg shadow-lg">
-                                    <h1 className="text-3xl font-bold text-blue-600 mb-2">🗂️ GAPURA</h1>
-                                    <p className="text-gray-600 text-sm">Employee Data Container System</p>
+                                    <h1 className="text-3xl font-bold text-blue-600 mb-2">🗂️ CertManager</h1>
+                                    <p className="text-gray-600 text-sm">Employee Training & Certification Management</p>
                                 </div>
                             </div>
                             <nav className="-mx-3 flex flex-1 justify-end">
@@ -99,7 +99,7 @@ export default function Welcome({ auth, laravelVersion, phpVersion }) {
                         </main>
 
                         <footer className="py-16 text-center text-sm text-black/70">
-                            GAPURA Employee Data Container System - Phase 1 Foundation
+                            CertManager - Employee Training & Certification Management System
                         </footer>
                     </div>
                 </div>

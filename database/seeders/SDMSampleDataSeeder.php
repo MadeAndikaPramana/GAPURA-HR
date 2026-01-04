@@ -125,7 +125,7 @@ class SDMSampleDataSeeder extends Seeder
             // Generate email
             $emailName = strtolower(str_replace(' ', '.', $name));
             $emailName = $this->removeAccents($emailName); // Remove any special characters
-            $email = $emailName . '@gapura.com';
+            $email = $emailName . '@example.com';
 
             // Generate phone (Indonesian format)
             $phone = '+62 8' . rand(10, 99) . ' ' . rand(1000, 9999) . ' ' . rand(1000, 9999);

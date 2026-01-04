@@ -18,7 +18,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->command->info('🚀 Starting Gapura Employee Container System Database Seeding...');
+        $this->command->info('🚀 Starting CertManager Employee Container System Database Seeding...');
         $this->command->info('====================================================================');
 
         try {
@@ -52,14 +52,14 @@ class DatabaseSeeder extends Seeder
 
         $users = [
             [
-                'name' => 'GAPURA Super Admin',
-                'email' => 'admin@gapura.com',
+                'name' => 'System Administrator',
+                'email' => 'admin@certmanager.local',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ],
             [
                 'name' => 'HR Manager',
-                'email' => 'hr@gapura.com',
+                'email' => 'hr@certmanager.local',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -147,7 +147,7 @@ class DatabaseSeeder extends Seeder
                 [
                     'employee_id' => 'MPGA-GSE-001',
                     'name' => 'Rina Kusuma',
-                    'email' => 'rina.kusuma@gapura.com',
+                    'email' => 'rina.kusuma@example.com',
                     'department_id' => $gseDept->id,
                     'position' => 'Equipment Maintenance Technician',
                     'hire_date' => Carbon::parse('2020-03-15'),
@@ -158,7 +158,7 @@ class DatabaseSeeder extends Seeder
                 [
                     'employee_id' => 'MPGA-OPS-001',
                     'name' => 'Ahmad Suryanto',
-                    'email' => 'ahmad.suryanto@gapura.com',
+                    'email' => 'ahmad.suryanto@example.com',
                     'department_id' => $opsDept->id,
                     'position' => 'Ground Operations Supervisor',
                     'hire_date' => Carbon::parse('2018-07-10'),
@@ -201,8 +201,8 @@ class DatabaseSeeder extends Seeder
 
         $this->command->newLine();
         $this->command->info('🔐 Admin Credentials:');
-        $this->command->line('  📧 admin@gapura.com / password');
-        $this->command->line('  📧 hr@gapura.com / password');
+        $this->command->line('  📧 admin@certmanager.local / password');
+        $this->command->line('  📧 hr@certmanager.local / password');
 
         $this->command->newLine();
         $this->command->info('🎯 NEXT STEPS:');

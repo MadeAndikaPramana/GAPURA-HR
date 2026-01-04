@@ -17,10 +17,10 @@ class AdminUserSeeder extends Seeder
 
         // Create default admin user
         $admin = User::firstOrCreate(
-            ['email' => 'admin@gapura.com'],
+            ['email' => 'admin@certmanager.local'],
             [
                 'name' => 'Administrator',
-                'email' => 'admin@gapura.com',
+                'email' => 'admin@certmanager.local',
                 'password' => Hash::make('password'),
                 'email_verified_at' => now(),
             ]
@@ -32,7 +32,7 @@ class AdminUserSeeder extends Seeder
             $this->command->line('═══════════════════════════════════════');
             $this->command->line('  LOGIN CREDENTIALS');
             $this->command->line('═══════════════════════════════════════');
-            $this->command->line('  Email    : admin@gapura.com');
+            $this->command->line('  Email    : admin@certmanager.local');
             $this->command->line('  Password : password');
             $this->command->line('═══════════════════════════════════════');
             $this->command->line('');

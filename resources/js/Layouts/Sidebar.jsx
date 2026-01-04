@@ -118,8 +118,8 @@ export default function Sidebar({ user, mobile = false }) {
                         <CubeIcon className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                        <h1 className="text-white text-lg font-bold">GAPURA</h1>
-                        <p className="text-green-400 text-xs font-medium">Container System</p>
+                        <h1 className="text-white text-lg font-bold">CertManager</h1>
+                        <p className="text-green-400 text-xs font-medium">Training & Certification</p>
                     </div>
                 </div>
             </div>
@@ -226,8 +226,8 @@ export default function Sidebar({ user, mobile = false }) {
                         </div>
                     </div>
                     <div className="ml-3 text-white">
-                        <div className="text-sm font-medium truncate">{user?.name || 'GAPURA Admin'}</div>
-                        <div className="text-xs text-slate-400 truncate">{user?.email || 'admin@gapura.com'}</div>
+                        <div className="text-sm font-medium truncate">{user?.name || 'Admin'}</div>
+                        <div className="text-xs text-slate-400 truncate">{user?.email || 'admin@certmanager.local'}</div>
                     </div>
                 </div>
 
