@@ -1012,4 +1012,108 @@ class EmployeeContainerController extends Controller
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         ]);
     }
+
+    /**
+     * Export all employee containers data
+     */
+    public function exportAllContainers(Request $request)
+    {
+        try {
+            $filters = [];
+
+            if ($request->filled('department_id')) {
+                $filters['department_id'] = $request->department_id;
+            }
+
+            if ($request->filled('status')) {
+                $filters['status'] = $request->status;
+            }
+
+            $filename = 'all-containers-export-' . date('Y-m-d-His') . '.xlsx';
+
+            return Excel::download(
+                new \App\Exports\ContainersExport($filters),
+                $filename
+            );
+
+        } catch (\Exception $e) {
+            Log::error('Error exporting all containers', [
+                'error' => $e->getMessage()
+            ]);
+
+            return back()->with('error', 'Failed to export containers: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Cleanup orphaned files in storage
+     */
+    public function cleanupOrphanedFiles()
+    {
+        try {
+            $deletedCount = 0;
+            $errors = [];
+
+            // Get all employee IDs in database
+            $employeeIds = Employee::pluck('id')->toArray();
+
+            // Scan containers directory
+            $containerDirs = Storage::disk('private')->directories('containers');
+
+            foreach ($containerDirs as $dir) {
+                // Extract employee ID from directory name (containers/employee-123)
+                if (preg_match('/employee-(\d+)/', $dir, $matches)) {
+                    $employeeId = (int) $matches[1];
+
+                    // If employee doesn't exist, delete the directory
+                    if (!in_array($employeeId, $employeeIds)) {
+                        try {
+                            Storage::disk('private')->deleteDirectory($dir);
+                            $deletedCount++;
+
+                            Log::info('Deleted orphaned container', [
+                                'directory' => $dir,
+                                'employee_id' => $employeeId
+                            ]);
+                        } catch (\Exception $e) {
+                            $errors[] = "Failed to delete {$dir}: " . $e->getMessage();
+                        }
+                    }
+                }
+            }
+
+            // Also cleanup file_storage records without matching files
+            $fileStorageRecords = \App\Models\FileStorage::all();
+            $orphanedRecords = 0;
+
+            foreach ($fileStorageRecords as $record) {
+                if (!Storage::disk($record->disk)->exists($record->path)) {
+                    $record->delete();
+                    $orphanedRecords++;
+                }
+            }
+
+            $result = [
+                'success' => true,
+                'deleted_directories' => $deletedCount,
+                'deleted_records' => $orphanedRecords,
+                'errors' => $errors
+            ];
+
+            Log::info('Orphaned files cleanup completed', $result);
+
+            return response()->json($result);
+
+        } catch (\Exception $e) {
+            Log::error('Error cleaning up orphaned files', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

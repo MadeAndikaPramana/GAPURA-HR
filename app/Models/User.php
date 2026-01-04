@@ -137,4 +137,32 @@ public function getRoleDisplayNameAttribute(): string
     return $roles[$this->role ?? 'user'] ?? 'User';
 }
 
+/**
+ * Check if user can access employee container
+ * Currently allows all authenticated users
+ * Can be extended for role-based access control
+ */
+public function canAccessEmployeeContainer($employee): bool
+{
+    // For now, all authenticated users can access all containers
+    // TODO: Implement role-based access control
+    // - Admins can access all
+    // - HR can access all
+    // - Employees can only access their own
+    // - Department managers can access their department
+
+    return true;
+
+    // Example implementation with roles:
+    // if ($this->role === 'admin' || $this->role === 'hr_staff' || $this->role === 'super_admin') {
+    //     return true;
+    // }
+    //
+    // if ($this->role === 'employee') {
+    //     return $this->employee_id === $employee->employee_id;
+    // }
+    //
+    // return false;
+}
+
 }
