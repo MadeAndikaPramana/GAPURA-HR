@@ -14,7 +14,9 @@ import {
     XCircleIcon,
     ClockIcon,
     PlusIcon,
-    FolderIcon
+    FolderIcon,
+    PencilIcon,
+    TrashIcon
 } from '@heroicons/react/24/outline';
 
 export default function Index({ auth, certificateTypes, filters = {} }) {
@@ -49,6 +51,17 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
         }
     };
 
+    const handleDelete = (type) => {
+        if (confirm(`Are you sure you want to delete "${type.name}"?\n\nThis action cannot be undone.`)) {
+            router.delete(route('training-types.destroy', type.id), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    // Success message will be shown from backend
+                },
+            });
+        }
+    };
+
     // Memoized calculations for better performance
     const processedCertificateTypes = useMemo(() => {
         if (!certificateTypes?.data) return [];
@@ -78,7 +91,21 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
                 ...type,
                 status,
                 certificateStats,
-                href: route('training-types.container', type.id)
+                href: route('training-types.container', type.id),
+                actions: [
+                    {
+                        label: 'Edit',
+                        icon: <PencilIcon className="w-4 h-4" />,
+                        onClick: () => router.visit(route('training-types.edit', type.id)),
+                        primary: false
+                    },
+                    {
+                        label: 'Delete',
+                        icon: <TrashIcon className="w-4 h-4" />,
+                        onClick: () => handleDelete(type),
+                        danger: true
+                    }
+                ]
             };
         });
     }, [certificateTypes]);
@@ -230,6 +257,7 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
                                                 ? { text: 'Active', status: 'active' }
                                                 : { text: 'Inactive', status: 'inactive' }
                                         }
+                                        actions={type.actions}
                                         className="hover:border-green-300"
                                     />
                                 ))}
@@ -237,7 +265,7 @@ export default function Index({ auth, certificateTypes, filters = {} }) {
 
                             {/* Optimized Pagination */}
                             <div className="mt-8">
-                                <OptimizedPagination 
+                                <OptimizedPagination
                                     data={certificateTypes}
                                     preserveState={true}
                                     preserveScroll={true}

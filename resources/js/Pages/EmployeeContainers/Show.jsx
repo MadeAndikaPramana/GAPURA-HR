@@ -15,7 +15,9 @@ import {
     ExclamationTriangleIcon,
     CheckCircleIcon,
     XCircleIcon,
-    ClockIcon
+    ClockIcon,
+    PencilIcon,
+    TrashIcon
 } from '@heroicons/react/24/outline';
 
 // Import components
@@ -111,8 +113,37 @@ function EmployeeHeader({ employee, container, onAddCertificate }) {
                     </div>
                 </div>
 
-                {/* Action Button */}
-                <div className="flex-shrink-0">
+                {/* Action Buttons */}
+                <div className="flex-shrink-0 flex gap-2">
+                    <Link
+                        href={route('sdm.edit', employee.id)}
+                        className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                        title="Edit Employee"
+                    >
+                        <PencilIcon className="w-4 h-4 mr-2" />
+                        Edit
+                    </Link>
+
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (confirm(`Are you sure you want to delete employee "${employee.name}"?\n\nThis will delete all certificates and background check files. This action cannot be undone.`)) {
+                                router.delete(route('sdm.destroy', employee.id), {
+                                    onSuccess: () => {
+                                        router.visit(route('employee-containers.index'));
+                                    }
+                                });
+                            }
+                        }}
+                        className="inline-flex items-center px-4 py-2 border border-red-300 text-sm font-medium rounded-md shadow-sm text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                        title="Delete Employee"
+                    >
+                        <TrashIcon className="w-4 h-4 mr-2" />
+                        Delete
+                    </button>
+
                     <button
                         type="button"
                         onClick={(e) => {

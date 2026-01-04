@@ -15,8 +15,12 @@ import {
     ChartBarIcon
 } from '@heroicons/react/24/outline';
 
-export default function Index({ auth, departments, stats, filters = {} }) {
+export default function Index({ auth, departments = {}, stats = {}, filters = {} }) {
     const [searchTerm, setSearchTerm] = useState(filters.search || '');
+
+    // Safely extract departments data with fallback
+    const departmentsData = Array.isArray(departments?.data) ? departments.data : [];
+    const hasDepartments = departmentsData.length > 0;
 
     const handleSearch = () => {
         const params = {
@@ -216,7 +220,7 @@ export default function Index({ auth, departments, stats, filters = {} }) {
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {departments?.data?.map((department) => (
+                                    {departmentsData.map((department) => (
                                         <tr key={department.id} className="hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="flex items-center">
@@ -268,13 +272,13 @@ export default function Index({ auth, departments, stats, filters = {} }) {
                                                 </div>
                                             </td>
                                         </tr>
-                                    )) || []}
+                                    ))}
                                 </tbody>
                             </table>
                         </div>
 
                         {/* Empty State */}
-                        {(!departments?.data || departments.data.length === 0) && (
+                        {!hasDepartments && (
                             <EmptyState
                                 icon={BuildingOfficeIcon}
                                 title="No departments found"
@@ -289,7 +293,7 @@ export default function Index({ auth, departments, stats, filters = {} }) {
                         )}
 
                         {/* Pagination */}
-                        {departments?.links && departments?.data?.length > 0 && (
+                        {departments?.links && hasDepartments && (
                             <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
                                 <div className="flex-1 flex justify-between sm:hidden">
                                     {departments.prev_page_url && (
