@@ -9,14 +9,38 @@ use App\Models\CertificateType;
 use App\Models\EmployeeCertificate;
 use Carbon\Carbon;
 
+/**
+ * ⚠️ DEPRECATED - DO NOT USE FOR PT GAPURA ANGKASA
+ *
+ * This seeder creates GENERIC demo data that is NOT suitable for aviation industry.
+ *
+ * For PT Gapura Angkasa, use:
+ * - DatabaseSeeder (comprehensive aviation setup)
+ * - DepartmentSeeder (43 aviation departments)
+ * - CertificateTypeSeeder (30 aviation certificate types)
+ * - RealisticEmployeeSeeder (20 realistic aviation employees)
+ * - SDMSampleDataSeeder (optional: 100 test employees)
+ *
+ * This seeder creates:
+ * - Generic departments (conflicts with DepartmentSeeder)
+ * - Generic certificate types (conflicts with CertificateTypeSeeder)
+ * - Generic employees with non-aviation data
+ *
+ * @deprecated Use DatabaseSeeder instead for production-ready aviation data
+ */
 class DemoDataSeeder extends Seeder
 {
     /**
      * Run the database seeds for demo/testing purposes.
+     *
+     * @deprecated This seeder is deprecated for PT Gapura Angkasa aviation system
      */
     public function run(): void
     {
-        $this->command->info('Starting demo data seeding...');
+        $this->command->warn('⚠️  WARNING: DemoDataSeeder is DEPRECATED for PT Gapura Angkasa');
+        $this->command->warn('⚠️  Use DatabaseSeeder instead for aviation-specific data');
+        $this->command->newLine();
+        $this->command->info('Starting GENERIC demo data seeding (not aviation-specific)...');
 
         // Create Departments
         $this->command->info('Creating departments...');

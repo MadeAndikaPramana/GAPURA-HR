@@ -19,20 +19,21 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->command->info('🚀 Starting CertManager Employee Container System Database Seeding...');
+        $this->command->info('🏢 PT Gapura Angkasa - Aviation Ground Handling Company');
         $this->command->info('====================================================================');
 
         try {
             // Create admin users
             $this->createAdminUsers();
 
-            // Create departments
-            $this->createDepartments();
+            // Create comprehensive PT Gapura Angkasa departments (43 aviation departments)
+            $this->call(DepartmentSeeder::class);
 
-            // Create certificate types for container system
+            // Create certificate types for aviation industry (30 types)
             $this->call(CertificateTypeSeeder::class);
 
-            // Create sample employees
-            $this->createSampleEmployees();
+            // Create realistic PT Gapura Angkasa employees (20 employees)
+            $this->call(RealisticEmployeeSeeder::class);
 
             // Show completion summary
             $this->showCompletionSummary();
@@ -75,109 +76,6 @@ class DatabaseSeeder extends Seeder
         $this->command->line('  ✅ Created ' . count($users) . ' admin users');
     }
 
-    /**
-     * Create departments
-     */
-    protected function createDepartments(): void
-    {
-        $this->command->info('🏢 Creating departments...');
-
-        $departments = [
-            [
-                'code' => 'HR',
-                'name' => 'Human Resources',
-                'description' => 'Human Resources Department',
-                'is_active' => true
-            ],
-            [
-                'code' => 'GSE',
-                'name' => 'Ground Support Equipment',
-                'description' => 'Ground Support Equipment Operations',
-                'is_active' => true
-            ],
-            [
-                'code' => 'OPS',
-                'name' => 'Operations',
-                'description' => 'Flight Operations Department',
-                'is_active' => true
-            ],
-            [
-                'code' => 'MAINT',
-                'name' => 'Maintenance',
-                'description' => 'Equipment Maintenance Department',
-                'is_active' => true
-            ],
-            [
-                'code' => 'SECURITY',
-                'name' => 'Security',
-                'description' => 'Airport Security Department',
-                'is_active' => true
-            ],
-            [
-                'code' => 'CARGO',
-                'name' => 'Cargo Handling',
-                'description' => 'Cargo and Baggage Handling',
-                'is_active' => true
-            ]
-        ];
-
-        foreach ($departments as $deptData) {
-            Department::updateOrCreate(
-                ['code' => $deptData['code']],
-                $deptData
-            );
-        }
-
-        $this->command->line('  ✅ Created ' . count($departments) . ' departments');
-    }
-
-
-    /**
-     * Create sample employees
-     */
-    protected function createSampleEmployees(): void
-    {
-        $this->command->info('👥 Creating sample employees...');
-
-        $gseDept = Department::where('code', 'GSE')->first();
-        $opsDept = Department::where('code', 'OPS')->first();
-
-        if ($gseDept && $opsDept) {
-            $employees = [
-                [
-                    'employee_id' => 'MPGA-GSE-001',
-                    'name' => 'Rina Kusuma',
-                    'email' => 'rina.kusuma@example.com',
-                    'department_id' => $gseDept->id,
-                    'position' => 'Equipment Maintenance Technician',
-                    'hire_date' => Carbon::parse('2020-03-15'),
-                    'status' => 'active',
-                    'background_check_status' => 'completed',
-                    'background_check_date' => Carbon::parse('2020-02-01')
-                ],
-                [
-                    'employee_id' => 'MPGA-OPS-001',
-                    'name' => 'Ahmad Suryanto',
-                    'email' => 'ahmad.suryanto@example.com',
-                    'department_id' => $opsDept->id,
-                    'position' => 'Ground Operations Supervisor',
-                    'hire_date' => Carbon::parse('2018-07-10'),
-                    'status' => 'active',
-                    'background_check_status' => 'completed',
-                    'background_check_date' => Carbon::parse('2018-06-15')
-                ]
-            ];
-
-            foreach ($employees as $empData) {
-                Employee::updateOrCreate(
-                    ['employee_id' => $empData['employee_id']],
-                    $empData
-                );
-            }
-
-            $this->command->line('  ✅ Created ' . count($employees) . ' sample employees');
-        }
-    }
 
     /**
      * Show completion summary
@@ -185,34 +83,49 @@ class DatabaseSeeder extends Seeder
     protected function showCompletionSummary(): void
     {
         $this->command->newLine();
-        $this->command->info('✅ SEEDING COMPLETED SUCCESSFULLY!');
-        $this->command->info('==================================');
+        $this->command->info('✅ PT GAPURA ANGKASA DATABASE SEEDING COMPLETED!');
+        $this->command->info('=================================================');
 
         $stats = [
-            'Users' => User::count(),
+            'Admin Users' => User::count(),
             'Departments' => Department::count(),
             'Employees' => Employee::count(),
             'Certificate Types' => CertificateType::count(),
         ];
 
+        $this->command->info('📊 SEEDED DATA:');
         foreach ($stats as $label => $count) {
-            $this->command->line("  📈 {$label}: {$count}");
+            $this->command->line("  • {$label}: {$count}");
         }
 
+        // Department breakdown
         $this->command->newLine();
-        $this->command->info('🔐 Admin Credentials:');
+        $this->command->info('🏢 DEPARTMENT STRUCTURE:');
+        $this->command->line('  • C-Level & Management (4)');
+        $this->command->line('  • Operations Division (6)');
+        $this->command->line('  • Commercial Division (4)');
+        $this->command->line('  • Finance & Accounting (4)');
+        $this->command->line('  • Human Resources (4)');
+        $this->command->line('  • Information Technology (4)');
+        $this->command->line('  • QHSE Division (5)');
+        $this->command->line('  • Logistics Division (4)');
+        $this->command->line('  • Engineering Division (3)');
+        $this->command->line('  • Legal & Compliance (3)');
+
+        $this->command->newLine();
+        $this->command->info('🔐 LOGIN CREDENTIALS:');
         $this->command->line('  📧 admin@certmanager.local / password');
         $this->command->line('  📧 hr@certmanager.local / password');
 
         $this->command->newLine();
         $this->command->info('🎯 NEXT STEPS:');
-        $this->command->line('1. Access /employees to see Employee Container System');
-        $this->command->line('2. Click "Container" button to view digital employee folders');
-        $this->command->line('3. Import MPGA data: php artisan mpga:import [file.xlsx]');
+        $this->command->line('1. Visit /employee-containers to see employee digital folders');
+        $this->command->line('2. Visit /training-types to manage 30 aviation certificate types');
+        $this->command->line('3. Visit /departments to view organizational structure');
         $this->command->line('4. Upload certificates and background check documents');
-        $this->command->line('5. Test recurrent certificate management');
+        $this->command->line('5. Optional: Run SDMSampleDataSeeder for 100 test employees');
 
         $this->command->newLine();
-        $this->command->info('🗂️ Employee Container System is ready!');
+        $this->command->info('✈️ PT Gapura Angkasa CertManager System Ready!');
     }
 }
