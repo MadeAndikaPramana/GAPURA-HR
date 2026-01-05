@@ -18,9 +18,22 @@ import {
 export default function Index({ auth, departments = {}, stats = {}, filters = {} }) {
     const [searchTerm, setSearchTerm] = useState(filters.search || '');
 
+    // Debug logging - remove after debugging
+    console.log('Departments Page Props:', {
+        auth,
+        departments,
+        stats,
+        filters,
+        hasDepartmentsData: !!departments?.data,
+        departmentsDataType: Array.isArray(departments?.data) ? 'array' : typeof departments?.data,
+        departmentsCount: departments?.data?.length || 0
+    });
+
     // Safely extract departments data with fallback
     const departmentsData = Array.isArray(departments?.data) ? departments.data : [];
     const hasDepartments = departmentsData.length > 0;
+
+    console.log('Processed Data:', { departmentsData, hasDepartments });
 
     const handleSearch = () => {
         const params = {
@@ -48,12 +61,34 @@ export default function Index({ auth, departments = {}, stats = {}, filters = {}
         }
     };
 
+    // If page appears blank, show debug info
+    const showDebugInfo = process.env.NODE_ENV === 'development';
+
     return (
         <AuthenticatedLayout user={auth.user}>
             <Head title="Departments" />
 
             <div className="py-6">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    {/* DEBUG INFO - Remove after debugging */}
+                    {showDebugInfo && (
+                        <div className="mb-4 p-4 bg-yellow-50 border-2 border-yellow-400 rounded-lg">
+                            <h3 className="font-bold text-yellow-900 mb-2">🐛 Debug Info (Remove after fixing)</h3>
+                            <pre className="text-xs text-yellow-800 overflow-auto">
+                                {JSON.stringify({
+                                    hasAuth: !!auth,
+                                    hasUser: !!auth?.user,
+                                    hasDepartments: !!departments,
+                                    departmentsType: typeof departments,
+                                    hasDepartmentsData: !!departments?.data,
+                                    departmentsDataLength: departments?.data?.length || 0,
+                                    hasStats: !!stats,
+                                    statsKeys: stats ? Object.keys(stats) : []
+                                }, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+
                     {/* Header */}
                     <div className="md:flex md:items-center md:justify-between mb-8">
                         <div className="flex-1 min-w-0">
